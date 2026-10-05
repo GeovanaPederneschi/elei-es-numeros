@@ -108,6 +108,7 @@ export async function GET(req: Request) {
     const eleicoes = await listarEleicoes();
     const consultas: { ele: string; ano: number; turno: number; cargo: number; uf: string; mun?: string }[] = [];
     for (const e of eleicoes) {
+      if (e.historico) continue; // anos antigos: /api/trajetoria-historico (um ano por requisição)
       for (const cargo of e.cargos) {
         const abr = CARGOS[cargo]?.abrangencia;
         if (abr === "br") consultas.push({ ele: e.id, ano: e.ano, turno: e.turno, cargo, uf: "br" });

@@ -2,6 +2,7 @@
 // O tempo de vida depende do estado da apuração (ver ttlEleicao).
 
 import { unstable_cache } from "next/cache";
+import { resumoUF } from "./dadosabertos";
 import { distribuicao, listarEleicoes, municipios, obterEleicao, resultado, ttlEleicao, MOCK, OpcoesDistribuicao } from "./tse";
 
 const VERSAO = "v3"; // mude para invalidar tudo após alterar os parsers
@@ -28,4 +29,9 @@ export async function distribuicaoCache(ele: string, cargo: number, uf: string, 
 
 export async function municipiosCache(ele: string) {
   return guardar(["municipios", ele], 60 * 60 * 24, () => municipios(ele));
+}
+
+/** Resumo de todos os candidatos de uma UF num ano antigo (dados abertos): muda nunca, cache longo. */
+export async function resumoUFCache(ano: number, uf: string) {
+  return guardar(["resumo-uf", String(ano), uf.toLowerCase()], 60 * 60 * 24 * 30, () => resumoUF(ano, uf));
 }

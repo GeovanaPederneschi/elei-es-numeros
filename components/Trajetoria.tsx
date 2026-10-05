@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import GraficoLinhas, { Serie } from "./GraficoLinhas";
 import { Carregando, Erro } from "./Paineis";
 import { SeletorUF } from "./Seletores";
-import { qs, useApi } from "@/lib/cliente";
-import { CARGOS, Trajetoria as T, corPartido, fmtNum, fmtPct, fmtPP, nomeUF, titulo } from "@/lib/shared";
+import { buscar, qs, useApi } from "@/lib/cliente";
+import { CARGOS, Eleicao, Trajetoria as T, corPartido, fmtNum, fmtPct, fmtPP, nomeUF, titulo } from "@/lib/shared";
 
 // Ordem fixa de cores por cargo (identidade categórica)
 const COR_CARGO: Record<number, string> = {
@@ -25,7 +25,13 @@ const xDe = (t: T) => t.ano + (t.turno - 1) * 0.5;
 export default function Trajetoria({ nome, uf, mun, ufEditavel }: { nome: string; uf?: string; mun?: string; ufEditavel?: boolean }) {
   const [ufBusca, setUfBusca] = useState(uf && uf !== "br" && uf !== "zz" ? uf : "");
   const { dados, erro, carregando } = useApi<{ itens: T[]; pessoa?: string }>(`/api/trajetoria?${qs({ nome, uf: ufBusca || undefined, mun })}`);
-  const itens = dados?.itens ?? [];
+  const historico = useHistoricoUF(nome, ufBusca, mun);
+  const itens = useMemo(() => {
+    const chave = (t: T) => `${t.ano}-${t.turno}-${t.cargo}-${t.uf}-${t.mun ?? ""}`;
+    const m = new Map<string, T>();
+    for (const t of [...historico.itens, ...(dados?.itens ?? [])]) m.set(chave(t), t);
+    return [...m.values()].sort((x, y) => x.ano - y.ano || x.turno - y.turno || x.cargo - y.cargo);
+  }, [dados, historico.itens]);
   const [a, setA] = useState<number | null>(null);
   const [b, setB] = useState<number | null>(null);
 
@@ -65,7 +71,8 @@ export default function Trajetoria({ nome, uf, mun, ufEditavel }: { nome: string
         </div>
       )}
       {carregando && <Carregando texto="Procurando o candidato em todas as eleições…" />}
-      {!carregando && itens.length === 0 && <p className="secundario">Nenhuma outra disputa encontrada com o nome “{titulo(nome)}”.</p>}
+      {!carregando && historico.pendentes > 0 && <Carregando texto={`Consultando os dados abertos do TSE (${historico.pendentes} ano(s) restante(s))…`} />}
+      {!carregando && !historico.pendentes && itens.length === 0 && <p className="secundario">Nenhuma outra disputa encontrada com o nome “{titulo(nome)}”.</p>}
       {itens.length > 0 && (
         <>
           <GraficoLinhas series={series} rotuloX={(x) => (x % 1 ? `${Math.floor(x)} 2ºt` : String(x))} />
@@ -164,4 +171,29 @@ export default function Trajetoria({ nome, uf, mun, ufEditavel }: { nome: string
       )}
     </div>
   );
+}
+
+/** Anos antigos (dados abertos): um pedido por ano, em paralelo, conforme chegam. */
+function useHistoricoUF(nome: string, uf: string, mun?: string) {
+  const [estado, setEstado] = useState<{ itens: T[]; pendentes: number }>({ itens: [], pendentes: 0 });
+  useEffect(() => {
+    if (!uf) {
+      setEstado({ itens: [], pendentes: 0 });
+      return;
+    }
+    let vivo = true;
+    buscar<Eleicao[]>("/api/eleicoes").then((lista) => {
+      const anos = [...new Set(lista.filter((e) => e.historico && (e.tipo !== "municipal" || mun)).map((e) => e.ano))];
+      if (!vivo) return;
+      setEstado({ itens: [], pendentes: anos.length });
+      for (const ano of anos)
+        buscar<{ itens: T[] }>(`/api/trajetoria-historico?${qs({ nome, uf, mun, ano })}`)
+          .then((r) => vivo && setEstado((s) => ({ itens: [...s.itens, ...r.itens], pendentes: s.pendentes - 1 })))
+          .catch(() => vivo && setEstado((s) => ({ ...s, pendentes: s.pendentes - 1 })));
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [nome, uf, mun]);
+  return estado;
 }

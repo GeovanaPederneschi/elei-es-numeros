@@ -17,6 +17,8 @@ export interface Eleicao {
    * já com os tokens resolvidos exceto <uf>. Ex.: { u: "https://.../oficial/ele2026/6257/dados/<uf>" }
    */
   dirs?: Record<string, string>;
+  /** Eleição antiga, lida do Portal de Dados Abertos do TSE (fora do servidor de divulgação). */
+  historico?: boolean;
 }
 
 export interface Totais {

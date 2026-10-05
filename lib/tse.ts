@@ -15,6 +15,7 @@ import {
   partidoPorNumero,
 } from "./shared";
 import * as mock from "./mock";
+import { distribuicaoDA, resultadoDA } from "./dadosabertos";
 
 const BASE = process.env.TSE_BASE_URL || "https://resultados.tse.jus.br/oficial";
 export const MOCK = process.env.TSE_MOCK === "1";
@@ -160,16 +161,31 @@ const CARGOS_POR_TIPO: Record<TipoEleicao, number[]> = {
 };
 
 // Eleições conhecidas (fallback caso o arquivo de configuração do TSE não as liste).
-const CONHECIDAS: Eleicao[] = [
-  { id: "426", ano: 2020, turno: 1, tipo: "municipal", nome: "Eleições Municipais 2020 - 1º turno", cargos: [11, 13] },
-  { id: "427", ano: 2020, turno: 2, tipo: "municipal", nome: "Eleições Municipais 2020 - 2º turno", cargos: [11] },
-  { id: "544", ano: 2022, turno: 1, tipo: "federal", nome: "Eleição Geral Federal 2022 - 1º turno", cargos: [1] },
-  { id: "545", ano: 2022, turno: 2, tipo: "federal", nome: "Eleição Geral Federal 2022 - 2º turno", cargos: [1] },
-  { id: "546", ano: 2022, turno: 1, tipo: "estadual", nome: "Eleição Geral Estadual 2022 - 1º turno", cargos: [3, 5, 6, 7, 8] },
-  { id: "547", ano: 2022, turno: 2, tipo: "estadual", nome: "Eleição Geral Estadual 2022 - 2º turno", cargos: [3] },
-  { id: "619", ano: 2024, turno: 1, tipo: "municipal", nome: "Eleições Municipais 2024 - 1º turno", cargos: [11, 13] },
-  { id: "620", ano: 2024, turno: 2, tipo: "municipal", nome: "Eleições Municipais 2024 - 2º turno", cargos: [11] },
-];
+// Eleições que já saíram do servidor de divulgação: lidas do Portal de Dados Abertos do TSE.
+const CONHECIDAS: Eleicao[] = (() => {
+  const out: Eleicao[] = [];
+  const ids: Record<string, string> = { "2020-1-municipal": "426", "2020-2-municipal": "427", "2022-1-federal": "544", "2022-2-federal": "545", "2022-1-estadual": "546", "2022-2-estadual": "547" };
+  const add = (ano: number, turno: number, tipo: TipoEleicao, cargos: number[]) => {
+    const chave = `${ano}-${turno}-${tipo}`;
+    const rot = tipo === "municipal" ? "Eleições Municipais" : tipo === "federal" ? "Eleição Geral Federal" : "Eleição Geral Estadual";
+    out.push({ id: ids[chave] ?? `h${ano}${turno}${tipo[0]}`, ano, turno, tipo, nome: `${rot} ${ano} - ${turno}º turno`, cargos, historico: true });
+  };
+  for (const ano of [2022, 2018, 2014, 2010, 2006, 2002]) {
+    add(ano, 1, "federal", [1]);
+    add(ano, 2, "federal", [1]);
+    add(ano, 1, "estadual", [3, 5, 6, 7, 8]);
+    add(ano, 2, "estadual", [3]);
+  }
+  for (const ano of [2020, 2016, 2012, 2008, 2004, 2000]) {
+    add(ano, 1, "municipal", [11, 13]);
+    add(ano, 2, "municipal", [11]);
+  }
+  out.push(
+    { id: "619", ano: 2024, turno: 1, tipo: "municipal", nome: "Eleições Municipais 2024 - 1º turno", cargos: [11, 13] },
+    { id: "620", ano: 2024, turno: 2, tipo: "municipal", nome: "Eleições Municipais 2024 - 2º turno", cargos: [11] }
+  );
+  return out;
+})();
 
 function extrasDoAmbiente(): Eleicao[] {
   // TSE_ELEICOES_EXTRA="2026:700:federal:1,2026:702:estadual:1"
@@ -209,7 +225,7 @@ function tipoPorCodigo(tp: number): TipoEleicao | null {
   return null;
 }
 
-function resolverDirs(arq: Record<string, string>, ano: number, id: string, pleito: string): Record<string, string> {
+function resolverDirs(arq: Record<string, string>, ciclo: string, id: string, pleito: string): Record<string, string> {
   const url = new URL(BASE);
   const ambiente = url.pathname.split("/").filter(Boolean).pop() || "oficial";
   const out: Record<string, string> = {};
@@ -217,7 +233,7 @@ function resolverDirs(arq: Record<string, string>, ano: number, id: string, plei
     out[tp] = dir
       .replace(/<base>/g, url.origin)
       .replace(/<ambiente>/g, ambiente)
-      .replace(/<ciclo>/g, `ele${ano}`)
+      .replace(/<ciclo>/g, ciclo)
       .replace(/<cd_eleicao>/g, id)
       .replace(/<cd_pleito>/g, pleito)
       .replace(/\/+$/, "");
@@ -268,9 +284,12 @@ export async function listarEleicoes(): Promise<Eleicao[]> {
         const ano = +(anoData ?? anoNome ?? ANO_ATUAL);
         const tipo = e.tp !== undefined && e.tp !== "" ? tipoPorCodigo(+e.tp) : tipoPorNome(nome, ano);
         if (!tipo) continue;
+        // eleição municipal avulsa (ex.: município recém-criado) em ano de eleição geral
+        if (tipo === "municipal" && ano % 4 === 2) continue;
         const turno = +(e.t ?? (/2[ºo°]/.test(nome) ? 2 : 1));
         const cargos = cargosDaConfig(e) ?? CARGOS_POR_TIPO[tipo].filter((c) => !(turno === 2 && [5, 6, 7, 8, 13].includes(c)));
-        const dirs = Object.keys(arq).length ? resolverDirs(arq, ano, id, String(pl.cd ?? "")) : undefined;
+        const ciclo = typeof pl.c === "string" && /^ele\d{4}$/.test(pl.c) ? pl.c : `ele${ano}`;
+        const dirs = Object.keys(arq).length ? resolverDirs(arq, ciclo, id, String(pl.cd ?? "")) : undefined;
         porId.set(id, { id, ano, turno, tipo, nome, data: dataPleito || undefined, cargos, dirs });
       }
     }
@@ -434,6 +453,17 @@ export function formatoUnificado(e: Eleicao) {
 
 export async function resultado(eleId: string, cargo: number, uf: string, mun?: string, zona?: string): Promise<Resultado> {
   const e = await obterEleicao(eleId);
+  if (e.historico && !MOCK) return resultadoDA(e, cargo, uf, mun, zona);
+  try {
+    return await resultadoLive(e, cargo, uf, mun, zona);
+  } catch (erro) {
+    // eleição que saiu do servidor de divulgação: tenta os dados abertos
+    if (!MOCK && e.ano < ANO_ATUAL && erro instanceof TSEError && erro.status === 404) return resultadoDA(e, cargo, uf, mun, zona);
+    throw erro;
+  }
+}
+
+async function resultadoLive(e: Eleicao, cargo: number, uf: string, mun?: string, zona?: string): Promise<Resultado> {
   const json: any = MOCK
     ? mock.resumoBruto(e, cargo, uf.toLowerCase(), mun)
     : formatoUnificado(e)
@@ -452,6 +482,10 @@ export async function resultado(eleId: string, cargo: number, uf: string, mun?: 
 export async function municipios(eleId: string): Promise<Record<string, MunicipioInfo[]>> {
   const e = await obterEleicao(eleId);
   if (MOCK) return mock.municipios();
+  if (e.historico) {
+    const atual = (await listarEleicoes()).find((x) => !x.historico && x.dirs?.cm);
+    if (atual) return municipios(atual.id);
+  }
   const nome = `mun-e${pad(e.id, 6)}-cm.json`;
   const urls = e.dirs?.cm ? [`${e.dirs.cm.replace(/\/?<uf>/g, "")}/${nome}`] : [];
   const json: any = await getPrimeiro([...urls, ...bases(e).map((b) => `${b}/config/${nome}`)], 60 * 60 * 24);
@@ -526,6 +560,13 @@ export async function distribuicao(
   const u = uf.toLowerCase();
   const manter = new Set(opts.manter ?? []);
   const abrangencia = CARGOS[cargo]?.abrangencia ?? "uf";
+
+  if (e.historico && !MOCK && !(abrangencia === "mun" && !mun)) {
+    const mapa = await mapaMunicipios(e);
+    const ibge = new Map<string, string>();
+    for (const [sg, lista] of Object.entries(mapa)) for (const m of lista) if (m.ibge) ibge.set(`${sg}|${m.cd}`, m.ibge);
+    return distribuicaoDA(e, cargo, u, mun, opts, ibge);
+  }
 
   // Eleições municipais no nível estadual: cada município tem seus candidatos.
   if (abrangencia === "mun" && !mun) {

@@ -45,7 +45,7 @@ TSE_MOCK=1 npm run dev
 | Dado | Fonte |
 |---|---|
 | Resultados 2026 em diante | API de divulgação `resultados.tse.jus.br`, formato novo: arquivo unificado EA20 (`-u.json`, um por Brasil/UF/município/zona), diretórios lidos do campo `arq` do `ele-c.json` (EA11), municípios do EA12 |
-| Resultados 2020–2024 (todos os cargos, por UF, município e zona, exterior) | Mesma API, formato anterior (`-r.json`, `-v.json`, `mun-*-cm.json`) |
+| Resultados 2002–2022 (todos os cargos, por UF, município e zona, exterior) | Portal de Dados Abertos do TSE (`cdn.tse.jus.br`, `votacao_candidato_munzona` e `detalhe_votacao_munzona`). O servidor baixa só o trecho do ZIP com o estado pedido (HTTP Range), descompacta em streaming e guarda o resultado em cache por 7 dias |
 | Lista de eleições (inclui as mais recentes automaticamente) | `resultados.tse.jus.br/oficial/comum/config/ele-c.json` |
 | Presidência 1989–2022 (nacional) | Base embutida em `data/presidente-historico.ts` (resultados oficiais do TSE) |
 | Histórico completo 1998–2024, todos os cargos (opcional) | Portal de Dados Abertos do TSE, via `npm run historico` |
