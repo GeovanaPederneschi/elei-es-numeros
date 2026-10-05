@@ -109,6 +109,8 @@ quais arquivos do TSE existem e o início de cada um (útil quando o TSE muda o 
 
 ## Observações
 
-- As zonas eleitorais não têm limites geográficos publicados pelo TSE; por isso aparecem como um mosaico interativo (cada bloco é uma zona, proporcional ao eleitorado).
+- As zonas eleitorais não têm limites oficiais publicados pelo TSE. O site desenha uma **área aproximada** de cada zona a partir
+  das coordenadas dos locais de votação (dados abertos `eleitorado_local_votacao`): cada ponto do município é atribuído ao local
+  de votação mais próximo (diagrama de Voronoi) e o resultado é recortado no contorno do município. Também há a visão em blocos.
 - A trajetória casa candidaturas pelo nome de urna; homônimos podem aparecer (o partido e o local são exibidos para conferir).
 - Projeto independente, sem vínculo com o TSE.

@@ -7,6 +7,7 @@ import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "re
 import type { Feature, Geometry } from "geojson";
 import MapaGeo, { PontoMapa } from "./MapaGeo";
 import MapaZonas from "./MapaZonas";
+import MapaZonasGeo from "./MapaZonasGeo";
 import { AreaCalc, Posicao } from "@/lib/analise";
 import { buscar } from "@/lib/cliente";
 import { localizarCidade } from "@/lib/exterior";
@@ -126,6 +127,8 @@ interface Props {
   onSelecionar?: (ac: AreaCalc) => void;
   podeSelecionar?: (ac: AreaCalc) => boolean;
   rotulosUF?: boolean;
+  /** código TSE do município (nível zona): permite desenhar as zonas no mapa real */
+  mun?: string;
   /** legenda exibida abaixo do mapa (também em tela cheia) */
   legenda?: ReactNode;
   /** título mostrado na barra da tela cheia */
@@ -185,7 +188,7 @@ export default function MapaAreas({ legenda, titulo, ...props }: Props) {
   );
 }
 
-function MapaAreasConteudo({ calc, nivel, uf, pintura, destaque, selecionado, onSelecionar, podeSelecionar, rotulosUF = true }: Omit<Props, "legenda" | "titulo">) {
+function MapaAreasConteudo({ calc, nivel, uf, pintura, destaque, selecionado, onSelecionar, podeSelecionar, rotulosUF = true, mun }: Omit<Props, "legenda" | "titulo">) {
   const geo = useGeometria(nivel, uf);
 
   // Índices de junção resultado <-> geometria
@@ -212,6 +215,9 @@ function MapaAreasConteudo({ calc, nivel, uf, pintura, destaque, selecionado, on
   };
 
   // ---- Zonas -------------------------------------------------------------
+  if (nivel === "zona" && mun && uf !== "zz") {
+    return <MapaZonasGeo calc={calc} uf={uf} mun={mun} pintura={pintura} destaque={destaque} onSelecionar={onSelecionar} selecionado={selecionado} />;
+  }
   if (nivel === "zona") {
     const porCd = new Map(calc.map((ac) => [ac.area.cd, ac]));
     return (

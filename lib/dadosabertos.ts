@@ -513,3 +513,94 @@ export function resumoUF(ano: number, uf: string): Promise<LinhaResumo[]> {
 }
 
 export { situacaoLegivel };
+
+// ---------------------------------------------------------------------------
+// Locais de votação (endereço e coordenadas) — usados para desenhar as zonas
+// ---------------------------------------------------------------------------
+
+/** [zona, nº do local, nome, endereço, bairro, latitude, longitude, eleitores] */
+export type LocalVotacao = [string, string, string, string, string, number, number, number];
+
+const locaisCache = new Map<string, Promise<{ ano: number; porMun: Record<string, LocalVotacao[]> }>>();
+
+function coord(v: string | undefined): number {
+  if (!v) return NaN;
+  const n = parseFloat(v.replace(",", "."));
+  return n === 0 || n === -1 ? NaN : n;
+}
+
+/** Locais de votação de uma UF, do cadastro mais recente publicado (eleitorado_local_votacao_<ano>). */
+export function locaisVotacaoUF(uf: string): Promise<{ ano: number; porMun: Record<string, LocalVotacao[]> }> {
+  const U = uf.toUpperCase();
+  if (locaisCache.has(U)) return locaisCache.get(U)!;
+  const p = (async () => {
+    const anoAtual = new Date().getFullYear();
+    let ultimoErro: unknown;
+    for (let ano = anoAtual; ano >= anoAtual - 6; ano--) {
+      const url = `${CDN}/eleitorado_locais_votacao/eleitorado_local_votacao_${ano}.zip`;
+      let lista: EntradaZip[];
+      try {
+        lista = await listarZip(url);
+      } catch (e) {
+        ultimoErro = e;
+        continue;
+      }
+      const csv = lista.filter((x) => /\.csv$/i.test(x.nome));
+      const daUF = csv.filter((x) => new RegExp(`_${U}\\.csv$`, "i").test(x.nome));
+      const ents = daUF.length ? daUF : csv.filter((x) => /_(BRASIL|BR)\.csv$/i.test(x.nome)).concat(csv.length === 1 ? csv : []);
+      if (!ents.length) continue;
+
+      const locais = new Map<string, { z: string; l: string; nome: string; end: string; bairro: string; lat: number; lon: number; eleitores: number; mun: string }>();
+      const secoes = new Set<string>();
+      for (const ent of ents.slice(0, 1)) {
+        let idx: Record<string, number> | null = null;
+        for await (const linha of linhasDaEntrada(url, ent)) {
+          const c = dividir(linha);
+          if (!idx) {
+            idx = Object.fromEntries(c.map((n, i) => [n.trim().toUpperCase(), i]));
+            if (idx["NR_LATITUDE"] === undefined) throw new DadosAbertosErro(`O cadastro de locais de ${ano} não traz coordenadas.`);
+            continue;
+          }
+          if (c[idx["SG_UF"]] !== U) continue;
+          if (idx["NR_TURNO"] !== undefined && c[idx["NR_TURNO"]] && +c[idx["NR_TURNO"]] !== 1) continue;
+          const mun = c[idx["CD_MUNICIPIO"]].padStart(5, "0");
+          const z = c[idx["NR_ZONA"]].padStart(4, "0");
+          const l = c[idx["NR_LOCAL_VOTACAO"]] ?? c[idx["NM_LOCAL_VOTACAO"]];
+          const chave = `${mun}|${z}|${l}`;
+          const secao = `${mun}|${z}|${c[idx["NR_SECAO"]]}`;
+          const qt = +(c[idx["QT_ELEITOR_SECAO"] ?? idx["QT_ELEITOR"] ?? idx["QT_ELEITORES"] ?? -1] ?? 0) || 0;
+          let r = locais.get(chave);
+          if (!r) {
+            r = {
+              z,
+              l,
+              mun,
+              nome: c[idx["NM_LOCAL_VOTACAO"]] ?? "",
+              end: c[idx["DS_ENDERECO"]] ?? "",
+              bairro: c[idx["NM_BAIRRO"]] ?? "",
+              lat: coord(c[idx["NR_LATITUDE"]]),
+              lon: coord(c[idx["NR_LONGITUDE"]]),
+              eleitores: 0,
+            };
+            locais.set(chave, r);
+          }
+          if (!secoes.has(secao)) {
+            secoes.add(secao);
+            r.eleitores += qt;
+          }
+        }
+      }
+      const porMun: Record<string, LocalVotacao[]> = {};
+      for (const r of locais.values()) {
+        if (!isFinite(r.lat) || !isFinite(r.lon)) continue;
+        (porMun[r.mun] ??= []).push([r.z, r.l, r.nome, r.end, r.bairro, r.lat, r.lon, r.eleitores]);
+      }
+      if (Object.keys(porMun).length) return { ano, porMun };
+    }
+    throw ultimoErro instanceof Error ? ultimoErro : new DadosAbertosErro("Cadastro de locais de votação indisponível.");
+  })();
+  p.catch(() => locaisCache.delete(U));
+  locaisCache.set(U, p);
+  if (locaisCache.size > 6) locaisCache.delete(locaisCache.keys().next().value as string);
+  return p;
+}

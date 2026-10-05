@@ -3,7 +3,7 @@
 // Mapa SVG interativo genérico: zoom (roda do mouse / botões / pinça), arrasto,
 // tooltip ao passar o mouse (ou primeiro toque), clique para aprofundar e teclado.
 
-import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { geoIdentity, geoNaturalEarth1, geoPath, GeoProjection } from "d3-geo";
 import type { Feature, FeatureCollection, Geometry } from "geojson";
 
@@ -31,6 +31,12 @@ interface Props {
   altura?: number;
   contornoFino?: boolean;
   descricao?: string;
+  /** recorta as formas por este contorno (e enquadra o mapa nele) */
+  recorte?: Feature<Geometry, any>;
+  /** linhas extras desenhadas por cima (ex.: divisas entre zonas) */
+  linhas?: Geometry;
+  /** textos fixos no mapa (ex.: número das zonas) */
+  marcadores?: { lon: number; lat: number; texto: string }[];
 }
 
 const RAD = Math.PI / 180;
@@ -64,7 +70,11 @@ export default function MapaGeo({
   altura = 640,
   contornoFino,
   descricao,
+  recorte,
+  linhas,
+  marcadores,
 }: Props) {
+  const idRecorte = "rec" + useId().replace(/[^a-zA-Z0-9]/g, "");
   const W = largura;
   const H = altura;
   const caixa = useRef<HTMLDivElement>(null);
@@ -75,7 +85,7 @@ export default function MapaGeo({
   const toques = useRef(new Map<number, { x: number; y: number }>());
   const pinca = useRef<{ d: number; k: number } | null>(null);
 
-  const { caminhos, proj } = useMemo(() => {
+  const { caminhos, proj, recorteD, linhasD } = useMemo(() => {
     let proj: GeoProjection | ((c: [number, number]) => [number, number] | null);
     let path: ReturnType<typeof geoPath>;
     if (projecao === "mundo") {
@@ -86,18 +96,24 @@ export default function MapaGeo({
       return {
         proj: (c: [number, number]) => p(c),
         caminhos: features.map((f) => ({ id: f.properties.id, nome: f.properties.nome, d: path(f) ?? "", c: path.centroid(f) })),
+        recorteD: "",
+        linhasD: "",
       };
     }
     const pf = features.map((f) => ({ ...f, geometry: preProjetar(f.geometry) }));
-    const fc = { type: "FeatureCollection", features: pf } as FeatureCollection;
+    const rec = recorte ? { ...recorte, geometry: preProjetar(recorte.geometry) } : null;
+    const fc = (rec ?? { type: "FeatureCollection", features: pf }) as any;
     const id = geoIdentity().reflectY(true).fitExtent([[8, 8], [W - 8, H - 8]], fc);
     path = geoPath(id);
     proj = (c: [number, number]) => id([c[0], mercY(c[1])]);
+    const linhasProj = linhas && linhas.type === "MultiLineString" ? { type: "MultiLineString", coordinates: linhas.coordinates.map((l) => l.map((c) => [c[0], mercY(c[1])])) } : null;
     return {
       proj,
       caminhos: pf.map((f) => ({ id: f.properties.id, nome: f.properties.nome, d: path(f) ?? "", c: path.centroid(f) })),
+      recorteD: rec ? path(rec) ?? "" : "",
+      linhasD: linhasProj ? path(linhasProj as any) ?? "" : "",
     };
-  }, [features, projecao, W, H]);
+  }, [features, projecao, W, H, recorte, linhas]);
 
   // Reinicia o zoom quando o conjunto de formas muda
   useEffect(() => setVista({ k: 1, x: 0, y: 0 }), [features]);
@@ -206,7 +222,15 @@ export default function MapaGeo({
         onPointerCancel={aoSoltar}
         style={{ cursor: vista.k > 1 ? "grab" : "default", touchAction: vista.k > 1 ? "none" : "pan-y" }}
       >
+        {recorteD && (
+          <defs>
+            <clipPath id={idRecorte}>
+              <path d={recorteD} />
+            </clipPath>
+          </defs>
+        )}
         <g transform={`translate(${vista.x},${vista.y}) scale(${vista.k})`}>
+          <g clipPath={recorteD ? `url(#${idRecorte})` : undefined}>
           {caminhos.map((c) => {
             const ativo = dica?.tipo === "f" && dica.id === c.id;
             const sel = selecionado === c.id;
@@ -240,6 +264,9 @@ export default function MapaGeo({
               />
             );
           })}
+          </g>
+          {linhasD && <path d={linhasD} className="linhas-extras" vectorEffect="non-scaling-stroke" pointerEvents="none" clipPath={`url(#${idRecorte})`} />}
+          {recorteD && <path d={recorteD} className="contorno-recorte" vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           {/* destaque por cima (borda da forma ativa/selecionada) */}
           {caminhos
             .filter((c) => c.id === selecionado || (dica?.tipo === "f" && dica.id === c.id))
@@ -256,6 +283,15 @@ export default function MapaGeo({
                 </text>
               );
             })}
+          {marcadores?.map((m, i) => {
+            const xy = proj([m.lon, m.lat]);
+            if (!xy) return null;
+            return (
+              <text key={"m" + i} x={xy[0]} y={xy[1]} className="rotulo-mapa" fontSize={12 / Math.sqrt(vista.k)} pointerEvents="none">
+                {m.texto}
+              </text>
+            );
+          })}
           {pontos?.map((p) => {
             const xy = proj([p.lon, p.lat]);
             if (!xy) return null;

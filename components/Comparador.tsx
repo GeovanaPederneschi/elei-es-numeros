@@ -230,6 +230,7 @@ function Comparacao({
                 nivel={db.dados.nivel}
                 uf={uf}
                 pintura={pintura}
+                mun={mun}
                 onSelecionar={db.dados.nivel === "uf" ? (ac) => ir({ uf: ac.area.cd, nivel: undefined }) : undefined}
                 titulo={`${titulo(candA.nome)} ${A.ano} → ${titulo(candB.nome)} ${B.ano}`}
                 legenda={<LegendaDivergente rotuloNeg={`perdeu (${A.ano}→${B.ano})`} rotuloPos="ganhou" />}

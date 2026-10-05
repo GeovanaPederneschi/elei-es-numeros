@@ -188,6 +188,7 @@ function MapaDoCandidato({ ele, cargo, uf, mun, c }: { ele: string; cargo: numbe
                 uf={dist.dados.uf}
                 pintura={pintura}
                 destaque={c.n}
+                mun={dist.dados.mun}
                 titulo={`Votação de ${titulo(c.nome)} — ${rotulo.toLowerCase()}s`}
                 legenda={<LegendaSequencial cor={cor} degraus={degraus} nome={titulo(c.nome)} />}
               />

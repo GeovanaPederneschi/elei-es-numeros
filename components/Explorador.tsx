@@ -240,6 +240,7 @@ function Painel({
                 destaque={cand}
                 onSelecionar={selecionar}
                 podeSelecionar={podeSelecionar}
+                mun={mun}
                 titulo={`${CARGOS[cargo]?.nome} ${ele.ano} · ${ele.turno}º turno — ${local}`}
                 legenda={
                   candSel && pintura.degraus ? (

@@ -1358,3 +1358,35 @@ tr.clicavel:hover td {
   min-height: 0;
   height: 100%;
 }
+
+/* ---------- Zonas no mapa ---------- */
+.linhas-extras {
+  fill: none;
+  stroke: var(--texto);
+  stroke-width: 1.6;
+  stroke-opacity: 0.75;
+}
+.contorno-recorte {
+  fill: none;
+  stroke: var(--texto-2);
+  stroke-width: 1.5;
+}
+.zonas-geo .forma {
+  stroke-opacity: 0.25;
+}
+.zonas-modo {
+  margin-bottom: 8px;
+}
+.zonas-modo button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.tela-cheia .zonas-geo {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.tela-cheia .zonas-geo .mapa {
+  flex: 1;
+  min-height: 0;
+}
