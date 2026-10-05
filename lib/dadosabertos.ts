@@ -529,66 +529,111 @@ function coord(v: string | undefined): number {
   return n === 0 || n === -1 ? NaN : n;
 }
 
+/**
+ * Endereços possíveis do cadastro de locais de votação. Primeiro pergunta ao portal de dados abertos
+ * (API CKAN), que lista os arquivos publicados; depois tenta os nomes conhecidos.
+ */
+let urlsLocais: Promise<{ url: string; ano: number }[]> | null = null;
+function urlsLocaisVotacao(): Promise<{ url: string; ano: number }[]> {
+  if (urlsLocais) return urlsLocais;
+  urlsLocais = (async () => {
+    const achadas = new Map<string, number>();
+    const CKAN = process.env.TSE_CKAN_URL || "https://dadosabertos.tse.jus.br/api/3/action/package_search";
+    for (const q of ["local de votação", "locais de votação", "eleitorado local votacao"]) {
+      try {
+        const r = await fetch(`${CKAN}?q=${encodeURIComponent(q)}&rows=50`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(15000), next: { revalidate: 86400 } } as RequestInit);
+        if (!r.ok) continue;
+        const j: any = await r.json();
+        for (const pac of j?.result?.results ?? [])
+          for (const rec of pac.resources ?? []) {
+            const url: string = rec.url ?? "";
+            if (!/\.zip$/i.test(url) || !/local_?votac|locais_?votac|local-votac/i.test(url)) continue;
+            const ano = +(/(20\d{2})/.exec(url)?.[1] ?? 0);
+            achadas.set(url, ano);
+          }
+      } catch {}
+      if (achadas.size) break;
+    }
+    const anoAtual = new Date().getFullYear();
+    for (let ano = anoAtual; ano >= anoAtual - 6; ano--)
+      for (const pasta of ["eleitorado_locais_votacao", "eleitorado_local_votacao", "eleitorado"])
+        for (const nome of [`eleitorado_local_votacao_${ano}.zip`, `eleitorado_locais_votacao_${ano}.zip`]) {
+          const url = `${CDN}/${pasta}/${nome}`;
+          if (!achadas.has(url)) achadas.set(url, ano);
+        }
+    return [...achadas.entries()].map(([url, ano]) => ({ url, ano })).sort((a, b) => b.ano - a.ano);
+  })();
+  urlsLocais.catch(() => (urlsLocais = null));
+  return urlsLocais;
+}
+
 /** Locais de votação de uma UF, do cadastro mais recente publicado (eleitorado_local_votacao_<ano>). */
 export function locaisVotacaoUF(uf: string): Promise<{ ano: number; porMun: Record<string, LocalVotacao[]> }> {
   const U = uf.toUpperCase();
   if (locaisCache.has(U)) return locaisCache.get(U)!;
   const p = (async () => {
-    const anoAtual = new Date().getFullYear();
-    let ultimoErro: unknown;
-    for (let ano = anoAtual; ano >= anoAtual - 6; ano--) {
-      const url = `${CDN}/eleitorado_locais_votacao/eleitorado_local_votacao_${ano}.zip`;
+    const tentativas: string[] = [];
+    for (const { url, ano } of await urlsLocaisVotacao()) {
       let lista: EntradaZip[];
       try {
         lista = await listarZip(url);
       } catch (e) {
-        ultimoErro = e;
+        tentativas.push(`${url} (${e instanceof Error ? e.message.replace(/ em https?:\S+/, "") : "erro"})`);
         continue;
       }
       const csv = lista.filter((x) => /\.csv$/i.test(x.nome));
       const daUF = csv.filter((x) => new RegExp(`_${U}\\.csv$`, "i").test(x.nome));
-      const ents = daUF.length ? daUF : csv.filter((x) => /_(BRASIL|BR)\.csv$/i.test(x.nome)).concat(csv.length === 1 ? csv : []);
-      if (!ents.length) continue;
+      const brasil = csv.filter((x) => /_(BRASIL|BR)\.csv$/i.test(x.nome));
+      const ents = daUF.length ? daUF : brasil.length ? brasil : csv.length <= 2 ? csv : [];
+      if (!ents.length) {
+        tentativas.push(`${url} (sem CSV de ${U})`);
+        continue;
+      }
 
       const locais = new Map<string, { z: string; l: string; nome: string; end: string; bairro: string; lat: number; lon: number; eleitores: number; mun: string }>();
       const secoes = new Set<string>();
-      for (const ent of ents.slice(0, 1)) {
-        let idx: Record<string, number> | null = null;
-        for await (const linha of linhasDaEntrada(url, ent)) {
-          const c = dividir(linha);
-          if (!idx) {
-            idx = Object.fromEntries(c.map((n, i) => [n.trim().toUpperCase(), i]));
-            if (idx["NR_LATITUDE"] === undefined) throw new DadosAbertosErro(`O cadastro de locais de ${ano} não traz coordenadas.`);
-            continue;
-          }
-          if (c[idx["SG_UF"]] !== U) continue;
-          if (idx["NR_TURNO"] !== undefined && c[idx["NR_TURNO"]] && +c[idx["NR_TURNO"]] !== 1) continue;
-          const mun = c[idx["CD_MUNICIPIO"]].padStart(5, "0");
-          const z = c[idx["NR_ZONA"]].padStart(4, "0");
-          const l = c[idx["NR_LOCAL_VOTACAO"]] ?? c[idx["NM_LOCAL_VOTACAO"]];
-          const chave = `${mun}|${z}|${l}`;
-          const secao = `${mun}|${z}|${c[idx["NR_SECAO"]]}`;
-          const qt = +(c[idx["QT_ELEITOR_SECAO"] ?? idx["QT_ELEITOR"] ?? idx["QT_ELEITORES"] ?? -1] ?? 0) || 0;
-          let r = locais.get(chave);
-          if (!r) {
-            r = {
-              z,
-              l,
-              mun,
-              nome: c[idx["NM_LOCAL_VOTACAO"]] ?? "",
-              end: c[idx["DS_ENDERECO"]] ?? "",
-              bairro: c[idx["NM_BAIRRO"]] ?? "",
-              lat: coord(c[idx["NR_LATITUDE"]]),
-              lon: coord(c[idx["NR_LONGITUDE"]]),
-              eleitores: 0,
-            };
-            locais.set(chave, r);
-          }
-          if (!secoes.has(secao)) {
-            secoes.add(secao);
-            r.eleitores += qt;
+      try {
+        for (const ent of ents.slice(0, 1)) {
+          let idx: Record<string, number> | null = null;
+          for await (const linha of linhasDaEntrada(url, ent)) {
+            const c = dividir(linha);
+            if (!idx) {
+              idx = Object.fromEntries(c.map((n, i) => [n.trim().toUpperCase(), i]));
+              if (idx["NR_LATITUDE"] === undefined) throw new DadosAbertosErro(`O cadastro de locais de ${ano} não traz coordenadas.`);
+              continue;
+            }
+            if (c[idx["SG_UF"]] !== U) continue;
+            if (idx["NR_TURNO"] !== undefined && c[idx["NR_TURNO"]] && +c[idx["NR_TURNO"]] !== 1) continue;
+            const mun = c[idx["CD_MUNICIPIO"]].padStart(5, "0");
+            const z = c[idx["NR_ZONA"]].padStart(4, "0");
+            const l = c[idx["NR_LOCAL_VOTACAO"]] ?? c[idx["NM_LOCAL_VOTACAO"]];
+            const chave = `${mun}|${z}|${l}`;
+            const secao = `${mun}|${z}|${c[idx["NR_SECAO"]]}`;
+            const qt = +(c[idx["QT_ELEITOR_SECAO"] ?? idx["QT_ELEITOR"] ?? idx["QT_ELEITORES"] ?? -1] ?? 0) || 0;
+            let r = locais.get(chave);
+            if (!r) {
+              r = {
+                z,
+                l,
+                mun,
+                nome: c[idx["NM_LOCAL_VOTACAO"]] ?? "",
+                end: c[idx["DS_ENDERECO"]] ?? "",
+                bairro: c[idx["NM_BAIRRO"]] ?? "",
+                lat: coord(c[idx["NR_LATITUDE"]]),
+                lon: coord(c[idx["NR_LONGITUDE"]]),
+                eleitores: 0,
+              };
+              locais.set(chave, r);
+            }
+            if (!secoes.has(secao)) {
+              secoes.add(secao);
+              r.eleitores += qt;
+            }
           }
         }
+      } catch (e) {
+        tentativas.push(`${url} (${e instanceof Error ? e.message : "erro ao ler"})`);
+        continue;
       }
       const porMun: Record<string, LocalVotacao[]> = {};
       for (const r of locais.values()) {
@@ -596,8 +641,9 @@ export function locaisVotacaoUF(uf: string): Promise<{ ano: number; porMun: Reco
         (porMun[r.mun] ??= []).push([r.z, r.l, r.nome, r.end, r.bairro, r.lat, r.lon, r.eleitores]);
       }
       if (Object.keys(porMun).length) return { ano, porMun };
+      tentativas.push(`${url} (sem coordenadas para ${U})`);
     }
-    throw ultimoErro instanceof Error ? ultimoErro : new DadosAbertosErro("Cadastro de locais de votação indisponível.");
+    throw new DadosAbertosErro(`Cadastro de locais de votação indisponível. Tentativas: ${tentativas.slice(0, 4).join("; ") || "nenhum arquivo encontrado"}`);
   })();
   p.catch(() => locaisCache.delete(U));
   locaisCache.set(U, p);
