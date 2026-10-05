@@ -89,6 +89,19 @@ data/                base histórica de presidente
 scripts/             gerador da base histórica completa
 ```
 
+## SEO
+
+- Páginas com endereço amigável e resumo em texto renderizado no servidor:
+  `/resultados/2026/presidente`, `/resultados/2026/presidente/sp`, `/resultados/2022/presidente/brasil/2-turno`,
+  `/resultados/2024/prefeito/sp/sao-paulo`, além do índice `/resultados`.
+- Título, descrição, canônico, Open Graph/Twitter e imagem de compartilhamento em todas as páginas;
+  perfil de candidato com título próprio (`/candidato?...`).
+- `sitemap.xml` (todas as eleições × cargos × estados/capitais) e `robots.txt` gerados automaticamente.
+- Dados estruturados Schema.org: `WebSite` (com busca), `Dataset`, `BreadcrumbList` e `Person`.
+- O domínio é detectado na Vercel (`VERCEL_PROJECT_PRODUCTION_URL`). Para domínio próprio, defina
+  `NEXT_PUBLIC_SITE_URL=https://seudominio.com.br`. Para o Google Search Console, defina
+  `GOOGLE_SITE_VERIFICATION` com o código de verificação.
+
 ## Diagnóstico
 
 Se algum recorte não carregar, abra `/api/diagnostico` no site publicado: ele mostra, a partir do servidor,

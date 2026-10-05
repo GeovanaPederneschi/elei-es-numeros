@@ -34,7 +34,15 @@ export function eleicaoPadrao(lista: Eleicao[], cargo?: number): Eleicao | undef
   return comCargo.filter((e) => e.ano === anoMax).sort((a, b) => a.turno - b.turno)[0];
 }
 
-export default function Explorador() {
+export interface PadraoExplorador {
+  ele?: string;
+  cargo?: number;
+  uf?: string;
+  mun?: string;
+}
+
+/** `padrao`: valores iniciais (páginas de SEO); `embutido`: a página já tem seu próprio <h1>. */
+export default function Explorador({ padrao, embutido }: { padrao?: PadraoExplorador; embutido?: boolean } = {}) {
   const sp = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -53,14 +61,14 @@ export default function Explorador() {
   if (!eleicoes) return <Carregando texto="Carregando eleições disponíveis…" />;
   if (!eleicoes.length) return <Erro msg="Nenhuma eleição disponível." />;
 
-  const cargoParam = sp.get("cargo") ? +sp.get("cargo")! : undefined;
-  const ele = eleicoes.find((e) => e.id === sp.get("ele")) ?? eleicaoPadrao(eleicoes, cargoParam ?? 1) ?? eleicoes[0];
+  const cargoParam = sp.get("cargo") ? +sp.get("cargo")! : padrao?.cargo;
+  const ele = eleicoes.find((e) => e.id === (sp.get("ele") ?? padrao?.ele)) ?? eleicaoPadrao(eleicoes, cargoParam ?? 1) ?? eleicoes[0];
   const cargo = cargoParam && ele.cargos.includes(cargoParam) ? cargoParam : ele.cargos[0];
   const abr = CARGOS[cargo]?.abrangencia ?? "uf";
-  let uf = (sp.get("uf") || (abr === "mun" ? "sp" : "br")).toLowerCase();
+  let uf = (sp.get("uf") || padrao?.uf || (abr === "mun" ? "sp" : "br")).toLowerCase();
   if (abr === "mun" && (uf === "br" || uf === "zz")) uf = "sp";
   if (abr !== "br" && uf === "zz") uf = "br";
-  const mun = sp.get("mun") || undefined;
+  const mun = sp.get("mun") || (sp.get("uf") ? undefined : padrao?.mun) || undefined;
   const nivelBR = sp.get("nivel") === "mun" ? "mun" : undefined;
   const cand = sp.get("cand") || undefined;
 
@@ -75,6 +83,7 @@ export default function Explorador() {
       nivelBR={nivelBR}
       cand={cand}
       ir={ir}
+      embutido={embutido}
     />
   );
 }
@@ -88,6 +97,7 @@ function Painel({
   nivelBR,
   cand,
   ir,
+  embutido,
 }: {
   eleicoes: Eleicao[];
   ele: Eleicao;
@@ -97,8 +107,10 @@ function Painel({
   nivelBR?: "mun";
   cand?: string;
   ir: (m: Record<string, string | number | undefined>) => void;
+  embutido?: boolean;
 }) {
   const abr = CARGOS[cargo]?.abrangencia ?? "uf";
+  const Titulo = embutido ? "h2" : "h1";
   const temResumo = abr === "br" || (uf !== "br" && (abr !== "mun" || !!mun));
   const resumo = useApi<Resultado>(temResumo ? `/api/resultado?${qs({ ele: ele.id, cargo, uf, mun })}` : null);
   const nivelPedido = uf === "br" && abr === "br" ? nivelBR : undefined;
@@ -178,9 +190,9 @@ function Painel({
           <p className="sobretitulo">
             {ele.ano} · {ele.turno}º turno {ele.recente ? <span className="ao-vivo">dados do TSE</span> : null}
           </p>
-          <h1>
+          <Titulo className="titulo-principal">
             {CARGOS[cargo]?.nome} — {local}
-          </h1>
+          </Titulo>
         </div>
         {abr === "br" && uf === "br" && (
           <div className="segmentado" role="group" aria-label="Detalhamento do mapa">
