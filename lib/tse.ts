@@ -85,6 +85,7 @@ async function getPrimeiro<T = any>(urls: string[], ttl: number): Promise<T> {
       erro = e;
     }
   }
+  if (erro instanceof TSEError && erro.status === 404) throw new TSEError(`Arquivo não encontrado no TSE: ${urls[0]}`, 404);
   throw erro instanceof Error ? erro : new TSEError("Falha ao consultar o TSE");
 }
 
@@ -416,13 +417,27 @@ export async function distribuicao(
         const json = await variaveis(e, sigla, undefined, cargo);
         return areasMunicipais(json, sigla, mapaMun[sigla] ?? [], top, manter);
       } catch {
-        return [];
+        return areasPorResumo(e, cargo, sigla, mapaMun[sigla] ?? [], top, manter, 6);
       }
     });
     return { eleicao: e.id, cargo, uf: u, nivel: "mun", areas: partes.flat(), candidatos };
   }
 
-  const json = await variaveis(e, u, mun, cargo);
+  let json: any;
+  try {
+    json = await variaveis(e, u, mun, cargo);
+  } catch (erro) {
+    // Sem o arquivo de variáveis: monta a distribuição com os resumos (-r.json) de cada subdivisão
+    if (mun) throw erro;
+    let filhos: MunicipioInfo[];
+    if (u === "br") {
+      const { UFS } = await import("./shared");
+      filhos = [...UFS.map((x) => ({ cd: x.sigla.toLowerCase(), nome: x.nome, ibge: x.ibge, zonas: [] })), { cd: "zz", nome: "Exterior", zonas: [] }];
+    } else filhos = mapaMun[u] ?? [];
+    const areas = await areasPorResumo(e, cargo, u, filhos, top, manter, 24);
+    if (!areas.length) throw erro;
+    return { eleicao: e.id, cargo, uf: u, nivel: u === "br" ? "uf" : u === "zz" ? "exterior" : "mun", areas, candidatos };
+  }
   const areas = areasDe(json);
   let nivel: Nivel;
   let lista: Area[];
@@ -479,6 +494,30 @@ function areasMunicipais(json: any, uf: string, infos: MunicipioInfo[], top: num
         votos: limitarVotos(votosDe(a.o), top, manter),
       };
     });
+}
+
+/** Distribuição a partir dos arquivos de resumo de cada subdivisão (plano B quando não há -v.json). */
+async function areasPorResumo(
+  e: Eleicao,
+  cargo: number,
+  uf: string,
+  filhos: MunicipioInfo[],
+  top: number,
+  manter: Set<string>,
+  limite: number
+): Promise<Area[]> {
+  const brasil = uf === "br";
+  const res = await mapLimit(filhos, limite, async (f) => {
+    try {
+      const r = brasil ? await resultado(e.id, cargo, f.cd) : await resultado(e.id, cargo, uf, f.cd);
+      const votos: Record<string, number> = {};
+      for (const c of r.candidatos) votos[c.n] = c.votos;
+      return { cd: f.cd, nome: f.nome, ibge: f.ibge, uf: brasil ? f.cd : uf, totais: r.totais, votos: limitarVotos(votos, top, manter) } as Area;
+    } catch {
+      return null;
+    }
+  });
+  return res.filter(Boolean) as Area[];
 }
 
 async function distribuicaoMunicipal(e: Eleicao, cargo: number, uf: string): Promise<Distribuicao> {
