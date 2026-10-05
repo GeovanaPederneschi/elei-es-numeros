@@ -1,0 +1,33 @@
+{
+  "name": "eleicoes-em-numeros",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Resultados eleitorais do Brasil (API do TSE) com mapas, comparações históricas e trajetória de candidatos.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "tsc --noEmit",
+    "historico": "node scripts/gerar-historico.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "d3-geo": "^3.1.1",
+    "next": "^16.3.8",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
+  },
+  "devDependencies": {
+    "@types/d3-geo": "^3.1.1",
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/topojson-client": "^3.1.5",
+    "typescript": "^5.9.3"
+  }
+}
