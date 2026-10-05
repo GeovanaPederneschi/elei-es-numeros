@@ -4,11 +4,52 @@ import { useEffect, useState } from "react";
 
 const cache = new Map<string, Promise<any>>();
 
+// Cópia local (localStorage) das respostas, para reabrir a página na hora.
+const LOCAL_TTL = 10 * 60_000;
+const PREFIXO = "een:";
+
+function lerLocal(url: string): any | undefined {
+  try {
+    const bruto = localStorage.getItem(PREFIXO + url);
+    if (!bruto) return undefined;
+    const { t, v } = JSON.parse(bruto);
+    if (Date.now() - t > LOCAL_TTL) return undefined;
+    return v;
+  } catch {
+    return undefined;
+  }
+}
+
+function gravarLocal(url: string, v: unknown) {
+  try {
+    const txt = JSON.stringify({ t: Date.now(), v });
+    if (txt.length > 1_500_000) return;
+    try {
+      localStorage.setItem(PREFIXO + url, txt);
+    } catch {
+      // cheio: apaga as entradas mais antigas deste site e tenta de novo
+      const chaves = Object.keys(localStorage).filter((k) => k.startsWith(PREFIXO));
+      chaves
+        .map((k) => ({ k, t: JSON.parse(localStorage.getItem(k) || "{}").t ?? 0 }))
+        .sort((a, b) => a.t - b.t)
+        .slice(0, Math.ceil(chaves.length / 2))
+        .forEach(({ k }) => localStorage.removeItem(k));
+      localStorage.setItem(PREFIXO + url, txt);
+    }
+  } catch {}
+}
+
 export function buscar<T = any>(url: string): Promise<T> {
   if (!cache.has(url)) {
+    const local = typeof window !== "undefined" ? lerLocal(url) : undefined;
+    if (local !== undefined) {
+      cache.set(url, Promise.resolve(local));
+      return cache.get(url)!;
+    }
     const p = fetch(url).then(async (r) => {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.erro || `Erro ${r.status}`);
+      if (url.startsWith("/api/") && !url.startsWith("/api/malha")) gravarLocal(url, j);
       return j;
     });
     p.catch(() => cache.delete(url));

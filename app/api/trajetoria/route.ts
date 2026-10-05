@@ -158,7 +158,7 @@ export async function GET(req: Request) {
     const mapa = new Map<string, Trajetoria>();
     for (const t of [...gerado, ...itens, ...daApi]) mapa.set(chave(t), t);
     const lista = [...mapa.values()].sort((a, b) => a.ano - b.ano || a.turno - b.turno || a.cargo - b.cargo);
-    return ok({ nome, pessoa, itens: lista }, 600);
+    return ok({ nome, pessoa, itens: lista }, 3600);
   } catch (e) {
     return falha(e);
   }

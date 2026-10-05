@@ -89,9 +89,49 @@ async function getPrimeiro<T = any>(urls: string[], ttl: number): Promise<T> {
   throw erro instanceof Error ? erro : new TSEError("Falha ao consultar o TSE");
 }
 
-export function ttlPara(e?: Pick<Eleicao, "ano">): number {
+export const TTL_APURACAO = 90; // durante a apuração
+export const TTL_FINAL = 60 * 60 * 6; // apuração concluída
+export const TTL_PASSADO = 60 * 60 * 24 * 7; // eleições de anos anteriores
+
+/** TTL síncrono para os arquivos brutos (o status da apuração fica em memória). */
+export function ttlPara(e?: Pick<Eleicao, "ano" | "id">): number {
   if (!e) return 300;
-  return e.ano >= ANO_ATUAL ? 60 : 60 * 60 * 24;
+  if (e.ano < ANO_ATUAL) return TTL_PASSADO;
+  return statusApuracao.get(e.id)?.final ? TTL_FINAL : TTL_APURACAO;
+}
+
+const statusApuracao = new Map<string, { t: number; final: boolean }>();
+
+/**
+ * Tempo de cache conforme a apuração: eleições passadas ficam 7 dias; a atual fica 6 h
+ * quando 100% das seções já foram totalizadas e 90 s enquanto ainda está apurando.
+ */
+export async function ttlEleicao(e: Eleicao): Promise<number> {
+  if (MOCK) return 60;
+  if (e.ano < ANO_ATUAL) return TTL_PASSADO;
+  const m = statusApuracao.get(e.id);
+  if (m && Date.now() - m.t < 5 * 60_000) return m.final ? TTL_FINAL : TTL_APURACAO;
+  let final = false;
+  try {
+    const cargo = e.cargos[0];
+    const abr = CARGOS[cargo]?.abrangencia;
+    if (abr === "mun") {
+      // sem arquivo estadual de prefeito: considera concluída 2 dias após a data do pleito
+      const [d, mm, a] = (e.data ?? "").split("/").map(Number);
+      final = !!a && Date.now() - new Date(a, mm - 1, d).getTime() > 2 * 86400_000;
+    } else {
+      const uf = abr === "br" ? "br" : "sp";
+      const bruto: any = formatoUnificado(e)
+        ? await getPrimeiro(arquivoUnificado(e, uf, undefined, undefined, cargo), 60)
+        : await getPrimeiro(arquivo(e, uf, undefined, cargo, "r"), 60);
+      const pst = num(bruto?.s?.pst ?? bruto?.pst);
+      final = pst >= 99.99 || bruto?.tf === "s";
+    }
+  } catch {
+    final = false;
+  }
+  statusApuracao.set(e.id, { t: Date.now(), final });
+  return final ? TTL_FINAL : TTL_APURACAO;
 }
 
 // ---------------------------------------------------------------------------
@@ -635,16 +675,20 @@ async function areasPorResumo(
   limite: number
 ): Promise<Area[]> {
   const brasil = uf === "br";
+  let falhas = 0;
   const res = await mapLimit(filhos, limite, async (f) => {
     try {
       const r = brasil ? await resultado(e.id, cargo, f.cd) : await resultado(e.id, cargo, uf, f.cd);
       const votos: Record<string, number> = {};
       for (const c of r.candidatos) votos[c.n] = c.votos;
       return { cd: f.cd, nome: f.nome, ibge: f.ibge, uf: brasil ? f.cd : uf, totais: r.totais, votos: limitarVotos(votos, top, manter) } as Area;
-    } catch {
+    } catch (erro) {
+      if (!(erro instanceof TSEError && erro.status === 404)) falhas++;
       return null;
     }
   });
+  // Evita guardar em cache um mapa incompleto por instabilidade momentânea do TSE
+  if (falhas > Math.max(2, filhos.length * 0.05)) throw new TSEError("O TSE está instável no momento; tente novamente em instantes.", 503);
   return res.filter(Boolean) as Area[];
 }
 

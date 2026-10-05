@@ -3,7 +3,9 @@ import { TSEError } from "./tse";
 export function ok(dados: unknown, sMaxAge = 120) {
   return Response.json(dados, {
     headers: {
-      "Cache-Control": `public, max-age=30, s-maxage=${sMaxAge}, stale-while-revalidate=86400`,
+      // CDN da Vercel guarda por s-maxage e, depois disso, ainda responde na hora com a versão
+      // anterior enquanto busca a nova em segundo plano (stale-while-revalidate).
+      "Cache-Control": `public, max-age=${Math.min(sMaxAge, 300)}, s-maxage=${sMaxAge}, stale-while-revalidate=604800`,
     },
   });
 }
