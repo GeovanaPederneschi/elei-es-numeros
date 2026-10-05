@@ -240,12 +240,15 @@ function Painel({
                 destaque={cand}
                 onSelecionar={selecionar}
                 podeSelecionar={podeSelecionar}
+                titulo={`${CARGOS[cargo]?.nome} ${ele.ano} · ${ele.turno}º turno — ${local}`}
+                legenda={
+                  candSel && pintura.degraus ? (
+                    <LegendaSequencial cor={corPartido(candSel.partido)} degraus={pintura.degraus} nome={titulo(candSel.nome)} />
+                  ) : (
+                    <LegendaLider calc={calcMapa} unidade={unidade} />
+                  )
+                }
               />
-              {candSel && pintura.degraus ? (
-                <LegendaSequencial cor={corPartido(candSel.partido)} degraus={pintura.degraus} nome={titulo(candSel.nome)} />
-              ) : (
-                <LegendaLider calc={calcMapa} unidade={unidade} />
-              )}
               {exterior && (
                 <button type="button" className="cartao-exterior" onClick={() => ir({ uf: "zz", mun: undefined })}>
                   <span>🌎 Votos no exterior</span>

@@ -182,8 +182,15 @@ function MapaDoCandidato({ ele, cargo, uf, mun, c }: { ele: string; cargo: numbe
         <>
           <div className="grade-perfil">
             <div>
-              <MapaAreas calc={calc} nivel={dist.dados.nivel} uf={dist.dados.uf} pintura={pintura} destaque={c.n} />
-              <LegendaSequencial cor={cor} degraus={degraus} nome={titulo(c.nome)} />
+              <MapaAreas
+                calc={calc}
+                nivel={dist.dados.nivel}
+                uf={dist.dados.uf}
+                pintura={pintura}
+                destaque={c.n}
+                titulo={`Votação de ${titulo(c.nome)} — ${rotulo.toLowerCase()}s`}
+                legenda={<LegendaSequencial cor={cor} degraus={degraus} nome={titulo(c.nome)} />}
+              />
             </div>
             <div>
               <Ranking calc={calc} n={c.n} titulo="Mais votos" por="votos" rotulo={rotulo} cor={cor} />

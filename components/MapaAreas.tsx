@@ -3,7 +3,7 @@
 // Liga os resultados (AreaCalc) à geometria certa para o nível:
 // estados, municípios (de um estado ou do país), zonas (mosaico) ou exterior (mapa-múndi).
 
-import { ReactNode, useEffect, useMemo, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Feature, Geometry } from "geojson";
 import MapaGeo, { PontoMapa } from "./MapaGeo";
 import MapaZonas from "./MapaZonas";
@@ -126,9 +126,66 @@ interface Props {
   onSelecionar?: (ac: AreaCalc) => void;
   podeSelecionar?: (ac: AreaCalc) => boolean;
   rotulosUF?: boolean;
+  /** legenda exibida abaixo do mapa (também em tela cheia) */
+  legenda?: ReactNode;
+  /** título mostrado na barra da tela cheia */
+  titulo?: string;
 }
 
-export default function MapaAreas({ calc, nivel, uf, pintura, destaque, selecionado, onSelecionar, podeSelecionar, rotulosUF = true }: Props) {
+/** Moldura do mapa com botão de tela cheia. Usa a Fullscreen API quando existe e,
+ *  no iPhone (que não a oferece para páginas), um modo que ocupa a janela inteira. */
+export default function MapaAreas({ legenda, titulo, ...props }: Props) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [cheia, setCheia] = useState(false);
+
+  const sair = useCallback(() => {
+    setCheia(false);
+    if (typeof document !== "undefined" && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }, []);
+
+  const entrar = useCallback(() => {
+    setCheia(true);
+    const el = ref.current;
+    if (el?.requestFullscreen) el.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const aoMudar = () => {
+      if (!document.fullscreenElement) setCheia(false);
+    };
+    document.addEventListener("fullscreenchange", aoMudar);
+    return () => document.removeEventListener("fullscreenchange", aoMudar);
+  }, []);
+
+  useEffect(() => {
+    if (!cheia) return;
+    const tecla = (e: KeyboardEvent) => e.key === "Escape" && sair();
+    window.addEventListener("keydown", tecla);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", tecla);
+      document.body.style.overflow = overflow;
+    };
+  }, [cheia, sair]);
+
+  return (
+    <div ref={ref} className={`quadro-mapa${cheia ? " tela-cheia" : ""}`}>
+      <div className="quadro-barra">
+        {cheia && titulo ? <strong className="quadro-titulo">{titulo}</strong> : <span />}
+        <button type="button" className="botao-tela-cheia" onClick={cheia ? sair : entrar} aria-pressed={cheia} title={cheia ? "Sair da tela cheia (Esc)" : "Ver o mapa em tela cheia"}>
+          {cheia ? "✕ Fechar" : "⛶ Tela cheia"}
+        </button>
+      </div>
+      <div className="quadro-corpo">
+        <MapaAreasConteudo {...props} />
+      </div>
+      {legenda ? <div className="quadro-legenda">{legenda}</div> : null}
+    </div>
+  );
+}
+
+function MapaAreasConteudo({ calc, nivel, uf, pintura, destaque, selecionado, onSelecionar, podeSelecionar, rotulosUF = true }: Omit<Props, "legenda" | "titulo">) {
   const geo = useGeometria(nivel, uf);
 
   // Índices de junção resultado <-> geometria

@@ -102,13 +102,14 @@ export default function MapaGeo({
   // Reinicia o zoom quando o conjunto de formas muda
   useEffect(() => setVista({ k: 1, x: 0, y: 0 }), [features]);
 
-  const paraSvg = useCallback(
-    (cx: number, cy: number) => {
-      const r = svgRef.current!.getBoundingClientRect();
-      return { x: ((cx - r.left) / r.width) * W, y: ((cy - r.top) / r.height) * H };
-    },
-    [W, H]
-  );
+  // Converte coordenadas da tela para o sistema do SVG (correto também com o mapa esticado em tela cheia)
+  const paraSvg = useCallback((cx: number, cy: number) => {
+    const svg = svgRef.current!;
+    const m = svg.getScreenCTM();
+    if (!m) return { x: 0, y: 0 };
+    const p = new DOMPoint(cx, cy).matrixTransform(m.inverse());
+    return { x: p.x, y: p.y };
+  }, []);
 
   const zoomEm = useCallback((fator: number, px: number, py: number) => {
     setVista((v) => {
@@ -161,9 +162,9 @@ export default function MapaGeo({
     }
     const a = arrasto.current;
     if (!a || vista.k === 1) return;
-    const r = svgRef.current!.getBoundingClientRect();
-    const dx = ((ev.clientX - a.x) / r.width) * W;
-    const dy = ((ev.clientY - a.y) / r.height) * H;
+    const escala = svgRef.current!.getScreenCTM()?.a || 1;
+    const dx = (ev.clientX - a.x) / escala;
+    const dy = (ev.clientY - a.y) / escala;
     if (Math.abs(dx) + Math.abs(dy) > 4) {
       a.moveu = true;
       setDica(null);

@@ -225,8 +225,15 @@ function Comparacao({
         ) : (
           <div className="grade-perfil">
             <div>
-              <MapaAreas calc={calcB} nivel={db.dados.nivel} uf={uf} pintura={pintura} onSelecionar={db.dados.nivel === "uf" ? (ac) => ir({ uf: ac.area.cd, nivel: undefined }) : undefined} />
-              <LegendaDivergente rotuloNeg={`perdeu (${A.ano}→${B.ano})`} rotuloPos="ganhou" />
+              <MapaAreas
+                calc={calcB}
+                nivel={db.dados.nivel}
+                uf={uf}
+                pintura={pintura}
+                onSelecionar={db.dados.nivel === "uf" ? (ac) => ir({ uf: ac.area.cd, nivel: undefined }) : undefined}
+                titulo={`${titulo(candA.nome)} ${A.ano} → ${titulo(candB.nome)} ${B.ano}`}
+                legenda={<LegendaDivergente rotuloNeg={`perdeu (${A.ano}→${B.ano})`} rotuloPos="ganhou" />}
+              />
             </div>
             <div>
               <ListaVariacao titulo="Onde mais cresceu" itens={ganhos} />
