@@ -525,8 +525,9 @@ const locaisCache = new Map<string, Promise<{ ano: number; porMun: Record<string
 
 function coord(v: string | undefined): number {
   if (!v) return NaN;
-  const n = parseFloat(v.replace(",", "."));
-  return n === 0 || n === -1 ? NaN : n;
+  const n = parseFloat(v.trim().replace(",", "."));
+  if (!isFinite(n) || n === 0 || n === -1 || Math.abs(n) > 180) return NaN;
+  return n;
 }
 
 /**
@@ -592,35 +593,59 @@ export function locaisVotacaoUF(uf: string): Promise<{ ano: number; porMun: Reco
 
       const locais = new Map<string, { z: string; l: string; nome: string; end: string; bairro: string; lat: number; lon: number; eleitores: number; mun: string }>();
       const secoes = new Set<string>();
+      const est = { linhas: 0, daUF: 0, comCoord: 0, exemplo: "", cabecalho: "" };
       try {
         for (const ent of ents.slice(0, 1)) {
           let idx: Record<string, number> | null = null;
+          let col: Record<string, number | undefined> = {};
           for await (const linha of linhasDaEntrada(url, ent)) {
-            const c = dividir(linha);
+            const c = dividir(linha.replace(/^\uFEFF/, ""));
             if (!idx) {
-              idx = Object.fromEntries(c.map((n, i) => [n.trim().toUpperCase(), i]));
-              if (idx["NR_LATITUDE"] === undefined) throw new DadosAbertosErro(`O cadastro de locais de ${ano} não traz coordenadas.`);
+              idx = Object.fromEntries(c.map((n, i) => [n.trim().replace(/^"|"$/g, "").toUpperCase(), i]));
+              const achar = (...nomes: string[]) => nomes.map((n) => idx![n]).find((v) => v !== undefined);
+              col = {
+                uf: achar("SG_UF", "SG_UF_LOCAL", "UF"),
+                mun: achar("CD_MUNICIPIO", "CD_MUNICIPIO_TSE"),
+                zona: achar("NR_ZONA", "NR_ZONA_ELEITORAL"),
+                secao: achar("NR_SECAO"),
+                turno: achar("NR_TURNO"),
+                local: achar("NR_LOCAL_VOTACAO", "CD_LOCAL_VOTACAO", "NR_LOCAL"),
+                nome: achar("NM_LOCAL_VOTACAO", "NM_LOCAL"),
+                end: achar("DS_ENDERECO", "DS_ENDERECO_LOCAL", "NM_ENDERECO"),
+                bairro: achar("NM_BAIRRO", "DS_BAIRRO"),
+                lat: achar("NR_LATITUDE", "VR_LATITUDE", "NR_LAT", "LATITUDE"),
+                lon: achar("NR_LONGITUDE", "VR_LONGITUDE", "NR_LONG", "NR_LON", "LONGITUDE"),
+                qt: achar("QT_ELEITOR_SECAO", "QT_ELEITOR", "QT_ELEITORES", "QT_APTOS"),
+              };
+              est.cabecalho = Object.keys(idx).join(",");
+              if (col.lat === undefined || col.lon === undefined) throw new DadosAbertosErro(`sem colunas de latitude/longitude; colunas: ${est.cabecalho.slice(0, 300)}`);
               continue;
             }
-            if (c[idx["SG_UF"]] !== U) continue;
-            if (idx["NR_TURNO"] !== undefined && c[idx["NR_TURNO"]] && +c[idx["NR_TURNO"]] !== 1) continue;
-            const mun = c[idx["CD_MUNICIPIO"]].padStart(5, "0");
-            const z = c[idx["NR_ZONA"]].padStart(4, "0");
-            const l = c[idx["NR_LOCAL_VOTACAO"]] ?? c[idx["NM_LOCAL_VOTACAO"]];
+            est.linhas++;
+            if (col.uf !== undefined && c[col.uf] !== U) continue;
+            est.daUF++;
+            if (col.turno !== undefined && c[col.turno] && +c[col.turno] !== 1) continue;
+            const mun = (c[col.mun!] ?? "").padStart(5, "0");
+            const z = (c[col.zona!] ?? "").padStart(4, "0");
+            const l = c[col.local ?? col.nome!] ?? "";
             const chave = `${mun}|${z}|${l}`;
-            const secao = `${mun}|${z}|${c[idx["NR_SECAO"]]}`;
-            const qt = +(c[idx["QT_ELEITOR_SECAO"] ?? idx["QT_ELEITOR"] ?? idx["QT_ELEITORES"] ?? -1] ?? 0) || 0;
+            const secao = `${mun}|${z}|${c[col.secao!]}`;
+            const qt = col.qt !== undefined ? +c[col.qt] || 0 : 0;
             let r = locais.get(chave);
             if (!r) {
+              const lat = coord(c[col.lat!]);
+              const lon = coord(c[col.lon!]);
+              if (!est.exemplo) est.exemplo = `${c[col.lat!]} / ${c[col.lon!]}`;
+              if (isFinite(lat) && isFinite(lon)) est.comCoord++;
               r = {
                 z,
                 l,
                 mun,
-                nome: c[idx["NM_LOCAL_VOTACAO"]] ?? "",
-                end: c[idx["DS_ENDERECO"]] ?? "",
-                bairro: c[idx["NM_BAIRRO"]] ?? "",
-                lat: coord(c[idx["NR_LATITUDE"]]),
-                lon: coord(c[idx["NR_LONGITUDE"]]),
+                nome: col.nome !== undefined ? c[col.nome] : "",
+                end: col.end !== undefined ? c[col.end] : "",
+                bairro: col.bairro !== undefined ? c[col.bairro] : "",
+                lat,
+                lon,
                 eleitores: 0,
               };
               locais.set(chave, r);
@@ -641,9 +666,11 @@ export function locaisVotacaoUF(uf: string): Promise<{ ano: number; porMun: Reco
         (porMun[r.mun] ??= []).push([r.z, r.l, r.nome, r.end, r.bairro, r.lat, r.lon, r.eleitores]);
       }
       if (Object.keys(porMun).length) return { ano, porMun };
-      tentativas.push(`${url} (sem coordenadas para ${U})`);
+      tentativas.push(`${url} (sem coordenadas para ${U}: ${est.linhas} linhas, ${est.daUF} de ${U}, ${locais.size} locais, ${est.comCoord} com coordenada; exemplo de lat/lon: "${est.exemplo}")`);
     }
-    throw new DadosAbertosErro(`Cadastro de locais de votação indisponível. Tentativas: ${tentativas.slice(0, 4).join("; ") || "nenhum arquivo encontrado"}`);
+    const uteis = tentativas.filter((t) => !/HTTP 404/.test(t));
+    const n404 = tentativas.length - uteis.length;
+    throw new DadosAbertosErro(`Cadastro de locais de votação indisponível. ${uteis.join("; ") || "Nenhum arquivo encontrado"}${n404 ? ` (+${n404} endereço(s) inexistente(s))` : ""}`);
   })();
   p.catch(() => locaisCache.delete(U));
   locaisCache.set(U, p);
