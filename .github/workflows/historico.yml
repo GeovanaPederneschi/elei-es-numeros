@@ -1,0 +1,74 @@
+# Gera a base histórica completa (dados abertos do TSE) e faz commit em public/historico.
+# Rode em: Actions → "Gerar base histórica" → Run workflow.
+name: Gerar base histórica
+
+on:
+  workflow_dispatch:
+    inputs:
+      anos:
+        description: "Anos separados por espaço"
+        required: false
+        default: "1998 2000 2002 2004 2006 2008 2010 2012 2014 2016 2018 2020 2022 2024"
+
+permissions:
+  contents: write
+
+jobs:
+  preparar:
+    runs-on: ubuntu-latest
+    outputs:
+      anos: ${{ steps.lista.outputs.anos }}
+    steps:
+      - id: lista
+        run: echo "anos=$(echo '${{ inputs.anos }}' | jq -R -c 'split(" ") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
+
+  ano:
+    needs: preparar
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        ano: ${{ fromJson(needs.preparar.outputs.anos) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Processar ${{ matrix.ano }}
+        env:
+          HISTORICO_LIMPAR: "1"
+        run: node scripts/gerar-historico.mjs ${{ matrix.ano }}
+      - name: Conferir saída
+        run: test -s public/historico/candidatos-${{ matrix.ano }}.json && ls -lh public/historico/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: historico-${{ matrix.ano }}
+          path: public/historico/candidatos-${{ matrix.ano }}.json
+          retention-days: 3
+
+  commit:
+    needs: ano
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: historico-*
+          path: public/historico
+          merge-multiple: true
+      - name: Atualizar índice
+        run: node scripts/gerar-historico.mjs --so-indice && ls -lh public/historico/
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898989+github-actions[bot]@users.noreply.github.com"
+          git add public/historico
+          git diff --cached --quiet && echo "Nada para commitar" && exit 0
+          git commit -m "Atualiza base histórica do TSE (${{ inputs.anos }})"
+          git push

@@ -24,17 +24,26 @@ function nomesEquivalentes(nome: string): { nomes: Set<string>; pessoa?: string 
   return { nomes, pessoa };
 }
 
+// Cache em memória (por instância) dos arquivos da base histórica, que passam de 2 MB
+const memoHist = new Map<string, Promise<any>>();
+function buscarHist(url: string) {
+  if (!memoHist.has(url)) {
+    const p = fetch(url, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null));
+    p.then((v) => v === null && memoHist.delete(url)).catch(() => memoHist.delete(url));
+    memoHist.set(url, p);
+  }
+  return memoHist.get(url)!;
+}
+
 async function historicoGerado(origem: string, nomes: Set<string>, uf?: string): Promise<Trajetoria[]> {
   try {
-    const res = await fetch(`${origem}/historico/index.json`, { next: { revalidate: 86400 } } as RequestInit);
-    if (!res.ok) return [];
-    const indice: { anos: number[] } = await res.json();
+    const indice: { anos: number[] } | null = await buscarHist(`${origem}/historico/index.json`);
+    if (!indice) return [];
     const out: Trajetoria[] = [];
     await Promise.all(
       indice.anos.map(async (ano) => {
-        const r = await fetch(`${origem}/historico/candidatos-${ano}.json`, { next: { revalidate: 86400 } } as RequestInit);
-        if (!r.ok) return;
-        const linhas: any[][] = await r.json();
+        const linhas: any[][] | null = await buscarHist(`${origem}/historico/candidatos-${ano}.json`).catch(() => null);
+        if (!linhas) return;
         for (const [a, turno, cargo, sg, mun, munNome, n, nome, partido, votos, pct, sit] of linhas) {
           if (!nomes.has(normalizar(nome))) continue;
           if (uf && sg !== "BR" && sg.toLowerCase() !== uf) continue;

@@ -24,6 +24,8 @@ const URL_BASE = "https://cdn.tse.jus.br/estatistica/sead/odsele/votacao_candida
 
 const args = process.argv.slice(2);
 const comVereador = args.includes("--vereador");
+const soIndice = args.includes("--so-indice");
+const limpar = process.env.HISTORICO_LIMPAR === "1";
 const anosArg = args.filter((a) => /^\d{4}$/.test(a)).map(Number);
 const ANOS = anosArg.length ? anosArg : [1998, 2000, 2002, 2004, 2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022, 2024];
 
@@ -132,10 +134,11 @@ async function processarAno(ano) {
     linhas.push([ano, r.turno, r.cargo, r.uf, r.mun, r.munNome, r.n, r.nome, r.partido, r.votos, pct, r.situacao]);
   }
   writeFileSync(path.join(SAIDA, `candidatos-${ano}.json`), JSON.stringify(linhas));
+  if (limpar) execFileSync("rm", ["-f", zip]);
   console.log(`✓ ${ano}: ${linhas.length} candidaturas`);
 }
 
-for (const ano of ANOS) {
+for (const ano of soIndice ? [] : ANOS) {
   try {
     await processarAno(ano);
   } catch (e) {
@@ -143,7 +146,7 @@ for (const ano of ANOS) {
   }
 }
 
-const anosGerados = ANOS.filter((a) => existsSync(path.join(SAIDA, `candidatos-${a}.json`)));
+const anosGerados = (soIndice ? Array.from({ length: 40 }, (_, i) => 1994 + i * 2) : ANOS).filter((a) => existsSync(path.join(SAIDA, `candidatos-${a}.json`)));
 let anteriores = [];
 try {
   anteriores = JSON.parse(readFileSync(path.join(SAIDA, "index.json"), "utf8")).anos ?? [];
