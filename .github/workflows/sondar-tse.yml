@@ -1,0 +1,48 @@
+# Diagnóstico: verifica quais arquivos da API de resultados do TSE existem e mostra o formato.
+name: Sondar API do TSE
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: "Caminhos extras (separados por espaço), relativos a https://resultados.tse.jus.br/oficial/"
+        required: false
+        default: ""
+
+jobs:
+  sondar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sondar
+        run: |
+          B=https://resultados.tse.jus.br/oficial
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36"
+          echo "== ele-c.json"
+          curl -sS -A "$UA" "$B/comum/config/ele-c.json" | head -c 4000; echo
+          for p in \
+            ele2026/6257/config/mun-e006257-cm.json \
+            ele2026/6257/dados-simplificados/br/br-c0001-e006257-r.json \
+            ele2026/6257/dados/br/br-c0001-e006257-v.json \
+            ele2026/6257/dados/br/br-c0001-e006257-f.json \
+            ele2026/6257/dados/br/br-e006257-v.json \
+            ele2026/6257/dados/br/br-e006257-f.json \
+            ele2026/6257/dados/sp/sp-c0001-e006257-v.json \
+            ele2026/6257/dados/sp/sp71072-c0001-e006257-v.json \
+            ele2026/6257/dados-simplificados/sp/sp-c0003-e006257-r.json \
+            ele2026/6257/dados/sp/sp-c0003-e006257-v.json \
+            ele2026/6257/dados/zz/zz-c0001-e006257-v.json \
+            ele2022/544/config/mun-e000544-cm.json \
+            ele2022/544/dados-simplificados/br/br-c0001-e000544-r.json \
+            ele2022/544/dados/br/br-c0001-e000544-v.json \
+            ele2022/544/dados/sp/sp-c0001-e000544-v.json \
+            ele2022/544/dados/sp/sp71072-c0001-e000544-v.json \
+            ele2022/546/dados-simplificados/sp/sp-c0006-e000546-r.json \
+            ele2024/619/dados-simplificados/sp/sp71072-c0011-e000619-r.json \
+            ele2024/619/dados/sp/sp71072-c0011-e000619-v.json \
+            ele2020/426/dados-simplificados/sp/sp71072-c0011-e000426-r.json \
+            ele2020/divulgacao/oficial/426/dados-simplificados/sp/sp71072-c0011-e000426-r.json \
+            ${{ inputs.urls }} ; do
+            echo; echo "== $p"
+            curl -sS -A "$UA" -o /tmp/r -w "HTTP %{http_code} %{size_download} bytes %{content_type}\n" "$B/$p"
+            head -c 1500 /tmp/r; echo
+          done
