@@ -12,6 +12,11 @@ export interface Eleicao {
   cargos: number[];
   /** true quando a eleição ainda pode estar em apuração / é recente */
   recente?: boolean;
+  /**
+   * Diretórios por tipo de arquivo (formato de divulgação 2026+, campo "arq" do ele-c.json),
+   * já com os tokens resolvidos exceto <uf>. Ex.: { u: "https://.../oficial/ele2026/6257/dados/<uf>" }
+   */
+  dirs?: Record<string, string>;
 }
 
 export interface Totais {

@@ -161,6 +161,31 @@ function tipoPorNome(nome: string, ano: number): TipoEleicao | null {
   return null;
 }
 
+/** Tipo da eleição pelo código "tp" do ele-c.json (EA11). Suplementares e consultas ficam de fora. */
+function tipoPorCodigo(tp: number): TipoEleicao | null {
+  if (tp === 8) return "federal";
+  if (tp === 1) return "estadual";
+  if (tp === 3) return "municipal";
+  return null;
+}
+
+function resolverDirs(arq: Record<string, string>, ano: number, id: string, pleito: string): Record<string, string> {
+  const url = new URL(BASE);
+  const ambiente = url.pathname.split("/").filter(Boolean).pop() || "oficial";
+  const out: Record<string, string> = {};
+  for (const [tp, dir] of Object.entries(arq)) {
+    out[tp] = dir
+      .replace(/<base>/g, url.origin)
+      .replace(/<ambiente>/g, ambiente)
+      .replace(/<ciclo>/g, `ele${ano}`)
+      .replace(/<cd_eleicao>/g, id)
+      .replace(/<cd_pleito>/g, pleito)
+      .replace(/\/+$/, "");
+    if (!/^https?:/.test(out[tp])) out[tp] = `${url.origin}/${out[tp].replace(/^\/+/, "")}`;
+  }
+  return out;
+}
+
 function cargosDaConfig(e: any): number[] | null {
   const set = new Set<number>();
   const visitar = (o: any) => {
@@ -189,6 +214,9 @@ export async function listarEleicoes(): Promise<Eleicao[]> {
   for (const r of resultados) {
     if (r.status !== "fulfilled") continue;
     const cfg: any = r.value;
+    // Formato 2026+: "arq" lista o diretório de cada tipo de arquivo (EA11)
+    const arq: Record<string, string> = {};
+    for (const a of cfg?.arq ?? []) if (a?.tp && a?.dir) arq[String(a.tp)] = String(a.dir);
     for (const pl of cfg?.pl ?? []) {
       const dataPleito: string = pl.dt ?? "";
       for (const e of pl.e ?? []) {
@@ -198,11 +226,12 @@ export async function listarEleicoes(): Promise<Eleicao[]> {
         const anoData = /(\d{4})$/.exec(dataPleito)?.[1];
         const anoNome = /(19|20)\d{2}/.exec(nome)?.[0];
         const ano = +(anoData ?? anoNome ?? ANO_ATUAL);
-        const tipo = tipoPorNome(nome, ano);
+        const tipo = e.tp !== undefined && e.tp !== "" ? tipoPorCodigo(+e.tp) : tipoPorNome(nome, ano);
         if (!tipo) continue;
         const turno = +(e.t ?? (/2[ºo°]/.test(nome) ? 2 : 1));
         const cargos = cargosDaConfig(e) ?? CARGOS_POR_TIPO[tipo].filter((c) => !(turno === 2 && [5, 6, 7, 8, 13].includes(c)));
-        porId.set(id, { id, ano, turno, tipo, nome, data: dataPleito || undefined, cargos });
+        const dirs = Object.keys(arq).length ? resolverDirs(arq, ano, id, String(pl.cd ?? "")) : undefined;
+        porId.set(id, { id, ano, turno, tipo, nome, data: dataPleito || undefined, cargos, dirs });
       }
     }
   }
@@ -304,9 +333,72 @@ function areasDe(json: any): { tipo: string; cd: string; o: any }[] {
 // Consultas
 // ---------------------------------------------------------------------------
 
-export async function resultado(eleId: string, cargo: number, uf: string, mun?: string): Promise<Resultado> {
+/** URLs do arquivo de resultado unificado (EA20, formato 2026+). */
+function arquivoUnificado(e: Eleicao, uf: string, mun: string | undefined, zona: string | undefined, cargo: number): string[] {
+  const u = uf.toLowerCase();
+  const nome = `${u}${mun ? pad(mun, 5) : ""}${mun && zona ? `-z${pad(zona, 4)}` : ""}-c${pad(cargo, 4)}-e${pad(e.id, 6)}-u.json`;
+  const dir = e.dirs?.u ?? `${BASE}/ele${e.ano}/${e.id}/dados/<uf>`;
+  return [`${dir.replace(/<uf>/g, u)}/${nome}`];
+}
+
+/** Converte o EA20 (carg → agr → par → cand) para o formato dos parsers. */
+export function achatarUnificado(json: any) {
+  const cands: any[] = [];
+  const cargo = +(json.carg?.[0]?.cd ?? 0);
+  const majoritarioComTurno = [1, 3, 11].includes(cargo);
+  // "e" = "s" vale para eleito OU para quem foi ao 2º turno; "st" só é preenchido na totalização final.
+  const sit = (c: any) => {
+    if (c.st) return { e: /^eleito/i.test(c.st) ? "s" : "n", st: c.st };
+    if (c.e !== "s") return { e: "n", st: "" };
+    if (!majoritarioComTurno) return { e: "s", st: "Eleito" };
+    if (json.md === "e") return { e: "s", st: "Eleito" };
+    if (json.md === "s") return { e: "n", st: "2º turno" };
+    return { e: "n", st: "" };
+  };
+  for (const cg of json.carg ?? [])
+    for (const agr of cg.agr ?? [])
+      for (const par of agr.par ?? [])
+        for (const c of par.cand ?? [])
+          cands.push({
+            n: c.n,
+            sqcand: c.sqcand,
+            nm: c.nmu || c.nm,
+            sgp: String(par.sg ?? "").replace(/\*+$/, ""),
+            cc: agr.tp && agr.tp !== "i" ? `${agr.nm ?? ""}${agr.com ? ` (${agr.com})` : ""}` : undefined,
+            nv: (c.vs ?? []).find((v: any) => v.tp === "v")?.nmu,
+            ...sit(c),
+            dvt: c.dvt,
+            vap: c.vap,
+            pvap: c.pvap,
+          });
+  const v = json.v ?? {};
+  const el = json.e ?? {};
+  const se = json.s ?? {};
+  return {
+    e: el.te,
+    c: el.c,
+    a: el.a,
+    vv: v.vv,
+    vb: v.vb,
+    tvn: v.tvn,
+    pst: se.pst,
+    dg: json.dt ?? json.dg,
+    hg: json.ht ?? json.hg,
+    cand: cands,
+  };
+}
+
+export function formatoUnificado(e: Eleicao) {
+  return !!e.dirs?.u || e.ano >= 2026;
+}
+
+export async function resultado(eleId: string, cargo: number, uf: string, mun?: string, zona?: string): Promise<Resultado> {
   const e = await obterEleicao(eleId);
-  const json: any = MOCK ? mock.resumoBruto(e, cargo, uf.toLowerCase(), mun) : await getPrimeiro(arquivo(e, uf, mun, cargo, "r"), ttlPara(e));
+  const json: any = MOCK
+    ? mock.resumoBruto(e, cargo, uf.toLowerCase(), mun)
+    : formatoUnificado(e)
+      ? achatarUnificado(await getPrimeiro(arquivoUnificado(e, uf, mun, zona, cargo), ttlPara(e)))
+      : await getPrimeiro(arquivo(e, uf, mun, cargo, "r"), ttlPara(e));
   return {
     eleicao: e.id,
     cargo,
@@ -321,18 +413,18 @@ export async function municipios(eleId: string): Promise<Record<string, Municipi
   const e = await obterEleicao(eleId);
   if (MOCK) return mock.municipios();
   const nome = `mun-e${pad(e.id, 6)}-cm.json`;
-  const json: any = await getPrimeiro(
-    bases(e).map((b) => `${b}/config/${nome}`),
-    60 * 60 * 24
-  );
+  const urls = e.dirs?.cm ? [`${e.dirs.cm.replace(/\/?<uf>/g, "")}/${nome}`] : [];
+  const json: any = await getPrimeiro([...urls, ...bases(e).map((b) => `${b}/config/${nome}`)], 60 * 60 * 24);
+  const { UF_POR_SIGLA } = await import("./shared");
   const out: Record<string, MunicipioInfo[]> = {};
   for (const uf of json.abr ?? []) {
     const sigla = String(uf.cd ?? "").toLowerCase();
     out[sigla] = (uf.mu ?? []).map((m: any) => ({
       cd: pad(m.cd, 5),
       nome: String(m.nm ?? ""),
-      ibge: m.cdi ? String(m.cdi) : undefined,
-      capital: m.c === "S",
+      // O TSE publica o código IBGE sem o prefixo da UF (5 dígitos) no formato 2026+
+      ibge: m.cdi ? (String(m.cdi).length >= 7 ? String(m.cdi) : (UF_POR_SIGLA[sigla]?.ibge ?? "") + pad(m.cdi, 5)) : undefined,
+      capital: String(m.c ?? "").toLowerCase() === "s",
       zonas: (m.z ?? []).map((z: any) => String(z)),
     }));
   }
@@ -408,6 +500,42 @@ export async function distribuicao(
   const candidatos = pai?.candidatos ?? [];
   const top = opts.top ?? (candidatos.length > 30 ? 5 : 1000);
   const mapaMun = await mapaMunicipios(e);
+
+  // Formato 2026+ (EA20): um arquivo por estado/município/zona, sem arquivo agregado de variáveis.
+  if (formatoUnificado(e) && !MOCK) {
+    const { UFS } = await import("./shared");
+    let nivel: Nivel;
+    let areas: Area[];
+    if (mun) {
+      nivel = "zona";
+      const zonas = mapaMun[u]?.find((m) => m.cd === pad(mun, 5))?.zonas ?? [];
+      areas = (
+        await mapLimit(zonas, 16, async (z) => {
+          try {
+            const r = await resultado(e.id, cargo, u, mun, z);
+            const votos: Record<string, number> = {};
+            for (const c of r.candidatos) votos[c.n] = c.votos;
+            return { cd: pad(z, 4), nome: `Zona ${+z}`, uf: u, totais: r.totais, votos: limitarVotos(votos, top, manter) } as Area;
+          } catch {
+            return null;
+          }
+        })
+      ).filter(Boolean) as Area[];
+    } else if (u === "br" && opts.nivel === "mun") {
+      nivel = "mun";
+      const partes = await mapLimit(UFS, 4, (x) => areasPorResumo(e, cargo, x.sigla.toLowerCase(), mapaMun[x.sigla.toLowerCase()] ?? [], top, manter, 12));
+      areas = partes.flat();
+    } else if (u === "br") {
+      nivel = "uf";
+      const filhos = [...UFS.map((x) => ({ cd: x.sigla.toLowerCase(), nome: x.nome, ibge: x.ibge, zonas: [] })), { cd: "zz", nome: "Exterior", zonas: [] }];
+      areas = await areasPorResumo(e, cargo, "br", filhos, top, manter, 28);
+    } else {
+      nivel = u === "zz" ? "exterior" : "mun";
+      areas = await areasPorResumo(e, cargo, u, mapaMun[u] ?? [], top, manter, 32);
+    }
+    const aviso = areas.length ? undefined : "O TSE ainda não publicou o detalhamento para esta abrangência.";
+    return { eleicao: e.id, cargo, uf: u, mun, nivel, areas, candidatos, aviso };
+  }
 
   if (u === "br" && opts.nivel === "mun") {
     const ufs = Object.keys(mapaMun).filter((s) => s !== "zz" && s !== "br");

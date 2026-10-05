@@ -10,7 +10,7 @@ import { eleicaoPadrao, useEleicoes } from "./Explorador";
 import { Carregando, Erro, LegendaDivergente, TabelaAreas } from "./Paineis";
 import { BuscaMunicipio, SeletorUF } from "./Seletores";
 import { AreaCalc, calcularTodas, pctCandidato, votosCandidato } from "@/lib/analise";
-import { qs, useApi } from "@/lib/cliente";
+import { qs, useApi, useDistribuicao } from "@/lib/cliente";
 import { SEM_DADOS, corDivergente } from "@/lib/cores";
 import { CARGOS, Candidato, Distribuicao, Eleicao, Resultado, corPartido, fmtNum, fmtPct, fmtPP, normalizar, nomeUF, rotuloEleicao, titulo } from "@/lib/shared";
 
@@ -138,8 +138,8 @@ function Comparacao({
   const candA = ca.find((c) => c.n === na) ?? ca[0];
   const candB = cb.find((c) => c.n === nb) ?? (candA ? cb.find((c) => normalizar(c.nome) === normalizar(candA.nome)) ?? cb.find((c) => c.partido === candA.partido) : undefined) ?? cb[0];
 
-  const da = useApi<Distribuicao>(candA ? `/api/distribuicao?${qs({ ele: A.id, cargo, uf, mun, nivel, n: candA.n })}` : null);
-  const db = useApi<Distribuicao>(candB ? `/api/distribuicao?${qs({ ele: B.id, cargo, uf, mun, nivel, n: candB.n })}` : null);
+  const da = useDistribuicao<Distribuicao>(candA ? { ele: A.id, cargo, uf, mun, nivel, n: candA.n } : null);
+  const db = useDistribuicao<Distribuicao>(candB ? { ele: B.id, cargo, uf, mun, nivel, n: candB.n } : null);
 
   const { calcB, diffs } = useMemo(() => {
     if (!da.dados || !db.dados || !candA || !candB) return { calcB: [] as AreaCalc[], diffs: new Map<string, { a?: number; b?: number; va: number; vb: number }>() };

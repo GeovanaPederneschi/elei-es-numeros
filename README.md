@@ -44,7 +44,8 @@ TSE_MOCK=1 npm run dev
 
 | Dado | Fonte |
 |---|---|
-| Resultados 2020 em diante (todos os cargos, por UF, município e zona, exterior) | API de divulgação `resultados.tse.jus.br` (arquivos `-r.json`, `-v.json`, `mun-*-cm.json`) |
+| Resultados 2026 em diante | API de divulgação `resultados.tse.jus.br`, formato novo: arquivo unificado EA20 (`-u.json`, um por Brasil/UF/município/zona), diretórios lidos do campo `arq` do `ele-c.json` (EA11), municípios do EA12 |
+| Resultados 2020–2024 (todos os cargos, por UF, município e zona, exterior) | Mesma API, formato anterior (`-r.json`, `-v.json`, `mun-*-cm.json`) |
 | Lista de eleições (inclui as mais recentes automaticamente) | `resultados.tse.jus.br/oficial/comum/config/ele-c.json` |
 | Presidência 1989–2022 (nacional) | Base embutida em `data/presidente-historico.ts` (resultados oficiais do TSE) |
 | Histórico completo 1998–2024, todos os cargos (opcional) | Portal de Dados Abertos do TSE, via `npm run historico` |
@@ -87,6 +88,11 @@ lib/exterior.ts      cidades no exterior → país e coordenadas
 data/                base histórica de presidente
 scripts/             gerador da base histórica completa
 ```
+
+## Diagnóstico
+
+Se algum recorte não carregar, abra `/api/diagnostico` no site publicado: ele mostra, a partir do servidor,
+quais arquivos do TSE existem e o início de cada um (útil quando o TSE muda o formato de divulgação).
 
 ## Observações
 

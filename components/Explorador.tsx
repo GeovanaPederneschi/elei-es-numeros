@@ -20,7 +20,7 @@ import {
 } from "./Paineis";
 import { BuscaMunicipio, SeletorEleicao, SeletorUF } from "./Seletores";
 import { AreaCalc, calcularTodas } from "@/lib/analise";
-import { qs, useApi } from "@/lib/cliente";
+import { qs, useApi, useDistribuicao } from "@/lib/cliente";
 import { degrausSequenciais } from "@/lib/cores";
 import { CARGOS, Distribuicao, Eleicao, MunicipioInfo, Resultado, corPartido, fmtNum, fmtPct, nomeUF, titulo } from "@/lib/shared";
 
@@ -102,7 +102,7 @@ function Painel({
   const temResumo = abr === "br" || (uf !== "br" && (abr !== "mun" || !!mun));
   const resumo = useApi<Resultado>(temResumo ? `/api/resultado?${qs({ ele: ele.id, cargo, uf, mun })}` : null);
   const nivelPedido = uf === "br" && abr === "br" ? nivelBR : undefined;
-  const dist = useApi<Distribuicao>(`/api/distribuicao?${qs({ ele: ele.id, cargo, uf, mun, nivel: nivelPedido, n: cand })}`);
+  const dist = useDistribuicao<Distribuicao>({ ele: ele.id, cargo, uf, mun, nivel: nivelPedido, n: cand });
   const munInfo = useApi<Record<string, MunicipioInfo[]>>(mun && uf !== "br" ? `/api/municipios?ele=${ele.id}&uf=${uf}` : null);
   const nomeMun = munInfo.dados?.[uf]?.find((m) => m.cd === mun)?.nome;
 

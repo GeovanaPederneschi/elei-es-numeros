@@ -10,7 +10,7 @@ const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 
 async function testar(caminho: string) {
   try {
-    const r = await fetch(`${BASE}/${caminho}`, { headers: { "User-Agent": UA }, cache: "no-store", signal: AbortSignal.timeout(15000) });
+    const r = await fetch(/^https?:/.test(caminho) ? caminho : `${BASE}/${caminho}`, { headers: { "User-Agent": UA }, cache: "no-store", signal: AbortSignal.timeout(15000) });
     const t = await r.text();
     return `HTTP ${r.status} ${t.length} bytes  ${caminho}\n${r.ok ? t.slice(0, 1200) : t.slice(0, 200)}\n`;
   } catch (e) {
@@ -32,6 +32,14 @@ export async function GET(req: Request) {
     const c = pad(e.cargos[0], 4);
     const raiz = `ele${e.ano}/${e.id}`;
     const uf = e.cargos[0] === 1 ? "br" : "sp";
+    linhas.push(`Eleição ${e.id}: diretórios = ${JSON.stringify(e.dirs ?? {})}\n`);
+    if (e.dirs?.u) {
+      const base = e.dirs.u;
+      for (const u of [uf, "sp", "zz"]) linhas.push(await testar(`${base.replace(/<uf>/g, u)}/${u}-c${c}-e${id}-u.json`));
+      linhas.push(await testar(`${base.replace(/<uf>/g, "sp")}/sp71072-c${c}-e${id}-u.json`));
+      linhas.push(await testar(`${base.replace(/<uf>/g, "sp")}/sp71072-z0001-c${c}-e${id}-u.json`));
+    }
+    if (e.dirs?.cm) linhas.push(await testar(`${e.dirs.cm.replace(/\/?<uf>/g, "")}/mun-e${id}-cm.json`));
     for (const p of [
       `${raiz}/config/mun-e${id}-cm.json`,
       `${raiz}/dados-simplificados/${uf}/${uf}-c${c}-e${id}-r.json`,

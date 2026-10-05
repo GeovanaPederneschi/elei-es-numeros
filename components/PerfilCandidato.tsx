@@ -8,7 +8,7 @@ import { Carregando, Erro, LegendaSequencial, TabelaAreas, pinturaCandidato } fr
 import { BuscaMunicipio } from "./Seletores";
 import Trajetoria from "./Trajetoria";
 import { AreaCalc, calcularTodas, pctCandidato, votosCandidato } from "@/lib/analise";
-import { qs, useApi } from "@/lib/cliente";
+import { qs, useApi, useDistribuicao } from "@/lib/cliente";
 import { degrausSequenciais } from "@/lib/cores";
 import { localizarCidade } from "@/lib/exterior";
 import { CARGOS, Candidato, Distribuicao, Eleicao, MunicipioInfo, Resultado, UFS, corPartido, fmtNum, fmtPct, nomeUF, titulo } from "@/lib/shared";
@@ -115,11 +115,11 @@ function MapaDoCandidato({ ele, cargo, uf, mun, c }: { ele: string; cargo: numbe
   const [zMun, setZMun] = useState<string | undefined>(mun);
   const cor = corPartido(c.partido);
 
-  let url: string | null = null;
-  if (aba === "uf") url = `/api/distribuicao?${qs({ ele, cargo, uf: "br", n: c.n })}`;
-  else if (aba === "mun") url = `/api/distribuicao?${qs({ ele, cargo, uf: abr === "br" ? "br" : uf, nivel: abr === "br" ? "mun" : undefined, n: c.n })}`;
-  else if (aba === "exterior") url = `/api/distribuicao?${qs({ ele, cargo, uf: "zz", n: c.n })}`;
-  else if (zMun) url = `/api/distribuicao?${qs({ ele, cargo, uf: zUf, mun: zMun, n: c.n })}`;
+  let params: Record<string, string | number | undefined> | null = null;
+  if (aba === "uf") params = { ele, cargo, uf: "br", n: c.n };
+  else if (aba === "mun") params = { ele, cargo, uf: abr === "br" ? "br" : uf, nivel: abr === "br" ? "mun" : undefined, n: c.n };
+  else if (aba === "exterior") params = { ele, cargo, uf: "zz", n: c.n };
+  else if (zMun) params = { ele, cargo, uf: zUf, mun: zMun, n: c.n };
 
   // Para as zonas: sugere o município onde o candidato teve mais votos
   const munDoEstado = useApi<Distribuicao>(aba === "zona" && !zMun && abr !== "mun" ? `/api/distribuicao?${qs({ ele, cargo, uf: zUf, n: c.n })}` : null);
@@ -129,7 +129,7 @@ function MapaDoCandidato({ ele, cargo, uf, mun, c }: { ele: string; cargo: numbe
     if (melhor) setZMun(melhor.cd);
   }, [aba, zMun, munDoEstado.dados, c.n]);
 
-  const dist = useApi<Distribuicao>(url);
+  const dist = useDistribuicao<Distribuicao>(params);
   const calc = useMemo(() => (dist.dados ? calcularTodas(dist.dados) : []).filter((ac) => ac.area.cd !== "zz"), [dist.dados]);
   const max = Math.max(1, ...calc.map((ac) => pctCandidato(ac, c.n) ?? 0));
   const degraus = degrausSequenciais(max);
